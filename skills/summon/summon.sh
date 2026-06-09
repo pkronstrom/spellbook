@@ -55,6 +55,12 @@ received_entry() {
     { [ "$#" -eq 1 ] && [ -e "$1" ]; } && printf '%s' "$1"
 }
 
+# Refuse a non-regular payload, then echo the single delivered entry (empty if 0/>1).
+resolve_entry() {
+    [ -z "$(unsafe_entry "$1")" ] || die "unsafe payload: non-regular file present"
+    received_entry "$1"
+}
+
 # A non-existent destination based on dest, auto-suffixed "name (2).ext" on collision.
 conflict_free() {
     dest="$1"
@@ -103,8 +109,7 @@ do_receive() {
     if ! out="$(CROC_SECRET="$1" croc --yes --overwrite --out "$q" 2>&1)"; then
         die "transfer failed: $out"
     fi
-    [ -z "$(unsafe_entry "$q")" ] || die "unsafe payload: non-regular file present (left in $q)"
-    entry="$(received_entry "$q")"
+    entry="$(resolve_entry "$q")"
     name="payload"; [ -n "$entry" ] && name="$(basename "$entry")"
     echo "status: ok"
     echo "name: $name"
@@ -117,11 +122,9 @@ do_receive() {
 do_place() {
     q="$1"
     [ -d "$q" ] || die "no such quarantine: $q"
-    [ -z "$(unsafe_entry "$q")" ] || die "unsafe payload: non-regular file present"
-    entry="$(received_entry "$q")"
+    entry="$(resolve_entry "$q")"
     [ -n "$entry" ] || die "expected one received item; inspect $q manually"
-    dest="$PWD/$(basename "$entry")"
-    [ -e "$dest" ] && dest="$(conflict_free "$dest")"   # never overwrite; rename instead
+    dest="$(conflict_free "$PWD/$(basename "$entry")")"   # never overwrites; renames on collision
     mv "$entry" "$dest"
     echo "status: ok"
     echo "placed: $dest"
