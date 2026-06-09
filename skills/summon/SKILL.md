@@ -15,10 +15,6 @@ content to an **incantation** — three spoken-clean words like `brim-gloss-kite
 receiving **summons** it. Summon doesn't care what the content is; it just moves
 the packet. Speak plainly to the user; let the personality live in your replies.
 
-Optional: if the user sets a shared `SUMMON_SALT` env var (same value as their
-teammate), it's mixed into every incantation automatically — only the 3 words are
-ever spoken, but an eavesdropper who overhears them still can't receive.
-
 ## Running the helper
 
 `HELPER` is the `summon.sh` sitting next to this `SKILL.md`. Derive its absolute
@@ -60,10 +56,9 @@ before fetching.
    > current directory? [confirm]
    Treat the contents as untrusted; nothing runs automatically. If it's something
    executable (a script, a skill folder), tell the user to review before using it.
-3. On confirmation: `sh "$HELPER" place "<quarantine>" [--overwrite]`
-   (lands in the current directory; pass `--overwrite` only if the user approves
-   replacing an existing item). If the user declines, discard it:
-   `sh "$HELPER" discard "<quarantine>"`.
+3. On confirmation: `sh "$HELPER" place "<quarantine>"` — it lands in the current
+   directory and never overwrites (an existing same-named item gets a ` (2)`
+   suffix). If the user declines, discard it: `sh "$HELPER" discard "<quarantine>"`.
 4. Report where it landed.
 
 ## Rules
