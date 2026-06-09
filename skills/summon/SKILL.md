@@ -1,21 +1,22 @@
 ---
 name: summon
 description: >-
-  Securely teleport a file, folder, whole Claude skill, or chunk of text/context
-  to a teammate's Claude using an end-to-end encrypted transfer (croc) and a
-  spoken "incantation" code. USE WHEN the user wants to send/share/give/teleport/
-  beam a file, folder, skill, or context to a colleague/teammate/someone ("send
-  this to a teammate", "share this skill", "prepare this to be sent"), OR to receive
-  one ("summon <incantation>", "receive what a teammate sent", or they paste an
-  incantation code with intent to receive).
+  Securely send a file, folder, or any content to a teammate's Claude over an
+  end-to-end encrypted peer-to-peer transfer, unlocked by a short spoken code (an
+  "incantation"). USE WHEN the user wants to send/share/give content to a
+  colleague/teammate/someone ("send this to a teammate", "share this with the team",
+  "prepare this to be sent"; also "teleport"/"beam"), OR to receive one ("summon
+  <incantation>", "receive what a teammate sent", or they paste a code with intent to
+  receive).
 ---
 
 # Summon
 
-Teleport files / skills / context to a teammate's Claude over `croc`. Sending
-**binds** a parcel to an **incantation** — three spoken-clean words like
-`brim-gloss-kite`; receiving **summons** it. Speak plainly to the user; let the
-personality live in your replies.
+Send files, folders, or context to a teammate's Claude over `croc`. Sending
+**binds** the content to an **incantation** — three spoken-clean words like
+`brim-gloss-kite`; receiving **summons** it. (A folder containing `SKILL.md` is
+auto-detected as a skill and offered into `~/.claude/skills/`.) Speak plainly to
+the user; let the personality live in your replies.
 
 Optional: if the user sets a shared `SUMMON_SALT` env var (same value as their
 teammate), it is mixed into every incantation automatically — only the 3 words are
