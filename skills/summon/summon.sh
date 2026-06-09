@@ -1,9 +1,17 @@
 #!/bin/sh
 # summon.sh — thin, dependency-light wrapper around `croc` for the Summon skill.
-# croc does the heavy lifting (secure code generation, E2E encryption, NAT
-# traversal, folder packaging, integrity). This wrapper adds the ergonomics:
-# backgrounded send + code capture, a clipboard share line, and a
-# quarantine -> detect -> safe-place receive flow.
+# croc does the heavy lifting (E2E encryption, NAT traversal, folder packaging,
+# integrity). This wrapper adds the ergonomics: a spoken-clean 3-word incantation,
+# backgrounded send, a clipboard share line, and a quarantine -> detect ->
+# safe-place receive flow.
+#
+# The incantation is generated here from a bundled spoken-friendly wordlist using
+# /dev/urandom (the model never picks the words) and passed to croc via
+# CROC_SECRET, so it is pure words (e.g. "acorn-zebra-mural") with no number.
+#
+# Optional shared secret: if SUMMON_SALT is set (same value on both ends), it is
+# transparently prepended to every incantation. You still only speak the 3 words;
+# an eavesdropper who overhears them cannot receive without also knowing the salt.
 #
 # Subcommands:
 #   send <path>            bind a file/folder/skill; print the incantation
@@ -17,6 +25,8 @@
 
 set -eu
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+WORDLIST="$SCRIPT_DIR/wordlist.txt"
 STATE_DIR="${SUMMON_HOME:-$HOME/.summon}/sends"
 SKILLS_DIR="$HOME/.claude/skills"
 
@@ -28,6 +38,24 @@ need_croc() {
 
 mktempdir() { mktemp -d "${TMPDIR:-/tmp}/summon.XXXXXX"; }
 
+# --- incantation -----------------------------------------------------------
+pick_word() {
+    r="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
+    idx=$(( r % $1 ))
+    sed -n "$((idx + 1))p" "$WORDLIST"
+}
+
+gen_incantation() {
+    [ -f "$WORDLIST" ] || die "wordlist missing: $WORDLIST"
+    n="$(wc -l < "$WORDLIST")"
+    printf '%s-%s-%s' "$(pick_word "$n")" "$(pick_word "$n")" "$(pick_word "$n")"
+}
+
+# Prepend the optional shared salt to form the real croc secret.
+apply_salt() {
+    if [ -n "${SUMMON_SALT:-}" ]; then printf '%s-%s' "$SUMMON_SALT" "$1"; else printf '%s' "$1"; fi
+}
+
 # --- detection -------------------------------------------------------------
 # Inspect a received quarantine dir and echo: "<type> <name> <source_path>"
 detect() {
@@ -38,7 +66,6 @@ detect() {
         echo "skill $(basename "$d") $d"
         return
     fi
-    # exactly one top-level entry is the norm (croc preserves the sent name)
     set -- "$q"/*
     if [ "$#" -eq 1 ] && [ -f "$1" ]; then
         echo "file $(basename "$1") $1"
@@ -70,27 +97,32 @@ do_send() {
     type="file"; [ -d "$src" ] && type="folder"
     [ -f "$src/SKILL.md" ] && type="skill"
 
+    code="$(gen_incantation)"
+    secret="$(apply_salt "$code")"
     mkdir -p "$STATE_DIR"
-    log="$(mktemp "${TMPDIR:-/tmp}/summon-send.XXXXXX.log")"
-    # nohup so croc keeps serving after this script returns.
-    nohup croc --yes send "$src" >"$log" 2>&1 &
+    log="$(mktemp "${TMPDIR:-/tmp}/summon-send.XXXXXX")"
+    # nohup so croc keeps serving after this script returns; CROC_SECRET carries
+    # our pure-word code (croc refuses --code on the CLI, accepts the env var).
+    nohup env CROC_SECRET="$secret" croc --yes send "$src" >"$log" 2>&1 &
     pid=$!
 
-    code=""
-    i=0
-    while [ "$i" -lt 100 ]; do
-        code="$(grep -oE 'Code is: [0-9A-Za-z-]+' "$log" 2>/dev/null | head -n1 | sed 's/Code is: //')"
-        [ -n "$code" ] && break
+    # wait until croc is actually serving, so a friend can receive immediately
+    i=0; ready=no
+    while [ "$i" -lt 60 ]; do
+        if grep -qE 'Code is:|Sending' "$log" 2>/dev/null; then ready=yes; break; fi
         kill -0 "$pid" 2>/dev/null || break
-        sleep 0.1
-        i=$((i + 1))
+        sleep 0.1; i=$((i + 1))
     done
-    [ -n "$code" ] || { cat "$log" >&2; die "croc did not produce a code (see stderr)"; }
+    [ "$ready" = yes ] || { cat "$log" >&2; die "croc send did not become ready (see stderr)"; }
 
-    sf="$STATE_DIR/$code"
-    printf 'pid=%s\nlog=%s\nname=%s\ntype=%s\n' "$pid" "$log" "$name" "$type" >"$sf"
+    printf 'pid=%s\nlog=%s\nname=%s\ntype=%s\n' "$pid" "$log" "$name" "$type" >"$STATE_DIR/$code"
 
-    share="Summon this: $code  ($type: $name) — No skill? brew install croc && croc $code"
+    if [ -n "${SUMMON_SALT:-}" ]; then
+        # the raw `croc <code>` fallback can't work without the shared salt
+        share="Summon this: $code  ($type: $name)"
+    else
+        share="Summon this: $code  ($type: $name) — No skill? brew install croc && croc $code"
+    fi
     clip="no"
     if command -v pbcopy >/dev/null 2>&1; then printf '%s' "$share" | pbcopy && clip="yes"; fi
 
@@ -141,9 +173,9 @@ do_cancel() {
 # --- receive / place -------------------------------------------------------
 do_receive() {
     need_croc
-    code="$1"
+    secret="$(apply_salt "$1")"
     q="$(mktempdir)"
-    if ! CROC_SECRET="$code" croc --yes --overwrite --out "$q" >"$q/.croc.log" 2>&1; then
+    if ! CROC_SECRET="$secret" croc --yes --overwrite --out "$q" >"$q/.croc.log" 2>&1; then
         log="$(cat "$q/.croc.log" 2>/dev/null)"; rm -rf "$q"
         die "transfer failed: $log"
     fi
@@ -171,8 +203,8 @@ do_place() {
     q="$1"
     [ -d "$q" ] || die "no such quarantine: $q"
     dest_override="${2:-}"
-    overwrite="no"; [ "${3:-}" = "--overwrite" ] && overwrite="yes"
-    # also allow: place <q> --overwrite
+    overwrite="no"
+    [ "${3:-}" = "--overwrite" ] && overwrite="yes"
     [ "$dest_override" = "--overwrite" ] && { overwrite="yes"; dest_override=""; }
 
     syml="$(find "$q" -type l 2>/dev/null | head -n1)"
@@ -211,5 +243,5 @@ case "$cmd" in
     cancel)     [ "$#" -ge 1 ] || die "usage: summon.sh cancel <incantation>"; do_cancel "$1" ;;
     receive)    [ "$#" -ge 1 ] || die "usage: summon.sh receive <incantation>"; do_receive "$1" ;;
     place)      [ "$#" -ge 1 ] || die "usage: summon.sh place <quarantine> [dest] [--overwrite]"; do_place "$@" ;;
-    *)          die "unknown command: ${cmd:-（none）}. Use send|send-text|status|cancel|receive|place" ;;
+    *)          die "unknown command: ${cmd:-(none)}. Use send|send-text|status|cancel|receive|place" ;;
 esac

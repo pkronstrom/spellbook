@@ -13,9 +13,14 @@ description: >-
 # Summon
 
 Teleport files / skills / context to a teammate's Claude over `croc`. Sending
-**binds** a parcel to an **incantation** (a short code like
-`4542-nothing-stretch-pastel`); receiving **summons** it. Speak plainly to the
-user; let the personality live in your replies.
+**binds** a parcel to an **incantation** — three spoken-clean words like
+`brim-gloss-kite`; receiving **summons** it. Speak plainly to the user; let the
+personality live in your replies.
+
+Optional: if the user sets a shared `SUMMON_SALT` env var (same value as their
+teammate), it is mixed into every incantation automatically — only the 3 words are
+ever spoken, but an eavesdropper who overhears them still can't receive. No action
+needed in the skill; the helper handles it.
 
 ## Running the helper
 
@@ -40,7 +45,7 @@ macOS network-permission prompt — the user must allow it.
    (Type is auto-detected; a folder containing `SKILL.md` is treated as a skill.)
 2. It prints the `incantation` and copies a ready-to-paste `share_line` to the
    clipboard. Relay it in-theme, e.g.:
-   > ✨ Bound and ready. Incantation: `4542-nothing-stretch-pastel`
+   > ✨ Bound and ready. Incantation: `brim-gloss-kite`
    > Copied a one-liner to your clipboard — send it to your teammate.
 3. If `clipboard: no`, show the `share_line` so the user can copy it manually.
 4. The send waits in the background. To check or stop it:

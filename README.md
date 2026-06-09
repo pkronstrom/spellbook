@@ -9,7 +9,8 @@ so new skills can be added in parallel without coupling.
 Securely teleport a **file**, **folder**, a whole **Claude skill**, or a chunk of
 **text/context** to a teammate's Claude. End-to-end encrypted via
 [croc](https://github.com/schollz/croc); each transfer is unlocked by a short
-spoken **incantation** (e.g. `4542-nothing-stretch-pastel`).
+spoken **incantation** — three easy words like `brim-gloss-kite`, made to be said
+out loud.
 
 - **Send:** ask Claude *"send this file to a teammate"* / *"share this skill"*. Claude
   binds it and copies a one-line incantation to your clipboard — pass it to your
@@ -20,6 +21,11 @@ spoken **incantation** (e.g. `4542-nothing-stretch-pastel`).
 
 Requires `croc` (`brew install croc`) on both ends. A teammate without the skill can
 still receive with `brew install croc && croc <incantation>`.
+
+**Optional hardening:** set a shared `SUMMON_SALT` env var (same value for you and a
+teammate) and it's mixed into every incantation automatically. You still speak only
+the 3 words, but someone who overhears them can't receive without also knowing the
+salt. Leave it unset for zero-setup use.
 
 ## Install
 
