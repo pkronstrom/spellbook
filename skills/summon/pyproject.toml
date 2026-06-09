@@ -1,0 +1,14 @@
+[project]
+name = "summon-core"
+version = "0.1.0"
+description = "Securely teleport files/skills/context to a teammate's Claude via croc."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["integration: requires the croc binary on PATH"]
+
+[tool.setuptools.packages.find]
+include = ["summon_core*"]
