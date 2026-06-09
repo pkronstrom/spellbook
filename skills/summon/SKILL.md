@@ -58,7 +58,9 @@ before fetching.
    executable (a script, a skill folder), tell the user to review before using it.
 3. On confirmation: `sh "$HELPER" place "<quarantine>"` — it lands in the current
    directory and never overwrites (an existing same-named item gets a ` (2)`
-   suffix). If the user declines, discard it: `sh "$HELPER" discard "<quarantine>"`.
+   suffix). If the user declines, do nothing — the staged copy sits in its temp
+   dir (`<quarantine>`) and the OS cleans it up; share the path if they want to
+   remove it themselves.
 4. Report where it landed.
 
 ## Rules

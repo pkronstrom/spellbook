@@ -11,23 +11,20 @@
 # no number.
 #
 # `send` serves until the peer connects, then exits. Run it in the background
-# (the agent's background shell); it ends when that shell / the session ends —
-# there is nothing to daemonize, track, or clean up.
+# (the agent's background shell); it ends when that shell / the session ends.
+#
+# Safety: this script NEVER deletes anything. It only creates — files it places
+# in the current directory (auto-renaming on collision, never overwriting), and
+# temp dirs under $TMPDIR for staging, which the OS reaps on its own.
 #
 # Subcommands:
 #   send <path>            serve a file/folder (blocks until received)
 #   send-text <text>       serve a chunk of text/context
-#   receive <incantation>  fetch into a private quarantine; report what arrived
+#   receive <incantation>  fetch into a private temp dir; report what arrived
 #   place <quarantine>     move the received item into the current dir
-#   discard <quarantine>   delete a quarantine you don't want
 #
 # Output is simple `key: value` lines. `send` writes them to stderr (unbuffered,
 # so they show immediately while it keeps serving); the rest write to stdout.
-#
-# Safety note: this script never deletes anything in your working directory.
-# `place` only ever creates files (auto-renaming on collision). The only rm -rf
-# is purge_quarantine(), which refuses any path that isn't one of our own
-# mktemp "summon.XXXXXX" quarantine dirs.
 
 set -eu
 umask 077
@@ -38,12 +35,6 @@ WORDLIST="$SCRIPT_DIR/wordlist.txt"
 die() { echo "status: error"; echo "error: $*"; exit 1; }
 need_croc() { command -v croc >/dev/null 2>&1 || die "croc not found. Install with: brew install croc"; }
 mktempdir() { mktemp -d "${TMPDIR:-/tmp}/summon.XXXXXX"; }
-
-# The ONLY rm -rf in this script. Guarded: the basename must match our mktemp
-# prefix, so a malformed/hostile path can never delete something it shouldn't.
-purge_quarantine() {
-    case "${1##*/}" in summon.*) [ -d "$1" ] && rm -rf "$1" || true ;; esac
-}
 
 pick_word() { r="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"; sed -n "$(( (r % $1) + 1 ))p" "$WORDLIST"; }
 
@@ -58,10 +49,7 @@ gen_incantation() {
 # (symlink, device, fifo, socket). Empty output means safe.
 unsafe_entry() { find "$1" ! -type d ! -type f 2>/dev/null | head -n1; }
 
-# Abort (and bin the quarantine) if it holds any non-regular file.
-reject_unsafe() { [ -z "$(unsafe_entry "$1")" ] || { purge_quarantine "$1"; die "unsafe payload: non-regular file present"; }; }
-
-# The single top-level item croc delivered into a quarantine dir (empty if 0 or >1).
+# The single top-level item croc delivered into a staging dir (empty if 0 or >1).
 received_entry() {
     set -- "$1"/*
     { [ "$#" -eq 1 ] && [ -e "$1" ]; } && printf '%s' "$1"
@@ -103,20 +91,19 @@ do_send() {
 do_send_text() {
     need_croc
     tmp="$(mktempdir)"
-    trap 'purge_quarantine "$tmp"' EXIT INT TERM
     printf '%s' "$1" > "$tmp/message.md"
     do_send "$tmp/message.md"
 }
 
-# --- receive / place / discard ---------------------------------------------
+# --- receive / place -------------------------------------------------------
 do_receive() {
     need_croc
     q="$(mktempdir)"
-    if ! CROC_SECRET="$1" croc --yes --overwrite --out "$q" >"$q/.log" 2>&1; then
-        msg="$(cat "$q/.log" 2>/dev/null)"; purge_quarantine "$q"; die "transfer failed: $msg"
+    # croc writes the payload into $q; its chatter is captured here, not to a file.
+    if ! out="$(CROC_SECRET="$1" croc --yes --overwrite --out "$q" 2>&1)"; then
+        die "transfer failed: $out"
     fi
-    rm -f "$q/.log"
-    reject_unsafe "$q"
+    [ -z "$(unsafe_entry "$q")" ] || die "unsafe payload: non-regular file present (left in $q)"
     entry="$(received_entry "$q")"
     name="payload"; [ -n "$entry" ] && name="$(basename "$entry")"
     echo "status: ok"
@@ -130,23 +117,14 @@ do_receive() {
 do_place() {
     q="$1"
     [ -d "$q" ] || die "no such quarantine: $q"
-    reject_unsafe "$q"
+    [ -z "$(unsafe_entry "$q")" ] || die "unsafe payload: non-regular file present"
     entry="$(received_entry "$q")"
     [ -n "$entry" ] || die "expected one received item; inspect $q manually"
     dest="$PWD/$(basename "$entry")"
     [ -e "$dest" ] && dest="$(conflict_free "$dest")"   # never overwrite; rename instead
     mv "$entry" "$dest"
-    purge_quarantine "$q"
     echo "status: ok"
     echo "placed: $dest"
-}
-
-do_discard() {
-    q="$1"
-    case "${q##*/}" in summon.*) ;; *) die "not a summon quarantine: $q" ;; esac
-    purge_quarantine "$q"
-    echo "status: ok"
-    echo "discarded: $q"
 }
 
 # --- dispatch --------------------------------------------------------------
@@ -156,6 +134,5 @@ case "$cmd" in
     send-text)  [ "$#" -ge 1 ] || die "usage: summon.sh send-text <text>"; do_send_text "$1" ;;
     receive)    [ "$#" -ge 1 ] || die "usage: summon.sh receive <incantation>"; do_receive "$1" ;;
     place)      [ "$#" -ge 1 ] || die "usage: summon.sh place <quarantine>"; do_place "$1" ;;
-    discard)    [ "$#" -ge 1 ] || die "usage: summon.sh discard <quarantine>"; do_discard "$1" ;;
-    *)          die "unknown command: ${cmd:-(none)}. Use send|send-text|receive|place|discard" ;;
+    *)          die "unknown command: ${cmd:-(none)}. Use send|send-text|receive|place" ;;
 esac
