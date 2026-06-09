@@ -5,16 +5,67 @@ so new skills can be added in parallel without coupling.
 
 ## Skills
 
-- **[summon](skills/summon/)** — securely teleport a file, folder, whole Claude
-  skill, or chunk of context to a teammate's Claude via end-to-end-encrypted
-  `croc`, unlocked by a spoken 4-word incantation.
+### ✨ Summon
+Securely teleport a **file**, **folder**, a whole **Claude skill**, or a chunk of
+**text/context** to a teammate's Claude. End-to-end encrypted via
+[croc](https://github.com/schollz/croc); each transfer is unlocked by a short
+spoken **incantation** (e.g. `4542-nothing-stretch-pastel`).
+
+- **Send:** ask Claude *"send this file to a teammate"* / *"share this skill"*. Claude
+  binds it and copies a one-line incantation to your clipboard — pass it to your
+  teammate over Slack/voice.
+- **Receive:** ask Claude *"summon `<incantation>`"*. It fetches into a quarantine,
+  shows you what arrived (origin is *not* cryptographically proven), and only
+  writes to disk after you confirm.
+
+Requires `croc` (`brew install croc`) on both ends. A teammate without the skill can
+still receive with `brew install croc && croc <incantation>`.
+
+## Install
+
+### Option A — Claude Code plugin (recommended)
+
+```
+/plugin marketplace add pkronstrom/spellbook
+/plugin install spellbook@spellbook
+```
+
+The first command registers this repo as a plugin marketplace; the second installs
+the `spellbook` plugin (which provides the Summon skill). Update later with
+`/plugin marketplace update spellbook`.
+
+> Replace `pkronstrom/spellbook` with your fork's `owner/repo` if different. You can
+> also point at a full URL: `/plugin marketplace add https://github.com/pkronstrom/spellbook`.
+
+### Option B — manual (single skill, no plugin)
+
+```sh
+git clone https://github.com/pkronstrom/spellbook ~/src/spellbook
+mkdir -p ~/.claude/skills
+cp -R ~/src/spellbook/skills/summon ~/.claude/skills/summon
+brew install croc
+```
+
+Then just talk to Claude ("send this file to …").
 
 ## Layout
 
 ```
 spellbook/
-  .claude-plugin/plugin.json   # makes the bundle installable as a Claude plugin
+  .claude-plugin/
+    plugin.json        # plugin metadata
+    marketplace.json   # makes the repo installable as a marketplace
   skills/
-    summon/                    # one skill = one folder (SKILL.md + its code + tests)
-  docs/superpowers/{specs,plans}/
+    summon/
+      SKILL.md         # how Claude drives the skill
+      summon.sh        # thin POSIX-sh wrapper around croc
+  docs/                # design notes (spec + plan)
 ```
+
+## Design
+
+Summon deliberately leans on `croc` for code generation, encryption, NAT
+traversal, folder packaging, and integrity. `summon.sh` only adds ergonomics:
+backgrounded send + code capture, a clipboard share line, and a
+quarantine → review → safe-place receive flow. Runtime dependencies are just
+**croc** and **sh** — nothing else.

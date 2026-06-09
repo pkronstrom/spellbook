@@ -1,0 +1,14 @@
+{
+  "name": "spellbook",
+  "owner": {
+    "name": "Peter Kronström",
+    "url": "https://github.com/pkronstrom"
+  },
+  "plugins": [
+    {
+      "name": "spellbook",
+      "source": "./",
+      "description": "A bundle of Claude skills. Includes Summon: securely teleport files, folders, whole skills, or context to a teammate's Claude via end-to-end-encrypted croc."
+    }
+  ]
+}

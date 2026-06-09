@@ -1,5 +1,8 @@
 {
   "name": "spellbook",
-  "description": "A bundle of Claude skills. Summon: securely teleport files/folders/skills/context to a teammate's Claude.",
-  "version": "0.1.0"
+  "description": "A bundle of Claude skills. Includes Summon: securely teleport files, folders, whole skills, or context to a teammate's Claude via end-to-end-encrypted croc.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Peter Kronström"
+  }
 }
