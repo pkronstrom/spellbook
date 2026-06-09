@@ -1,13 +1,13 @@
 ---
 name: summon
 description: >-
-  Securely send a file, folder, or any content to a teammate's Claude over an
-  end-to-end encrypted peer-to-peer transfer, unlocked by a short spoken code (an
-  "incantation"). USE WHEN the user wants to send/share/give content to a
+  Magically send a file, folder, or any content to a teammate's Claude — a secure,
+  end-to-end encrypted peer-to-peer transfer sealed with a short spoken
+  "incantation." USE WHEN the user wants to send/share/give content to a
   colleague/teammate/someone ("send this to a teammate", "share this with the team",
-  "prepare this to be sent"; also "teleport"/"beam"), OR to receive one ("summon
-  <incantation>", "receive what a teammate sent", or they paste a code with intent to
-  receive).
+  "prepare this to be sent"; also "teleport"/"beam"/"conjure"), OR to receive one
+  ("summon <incantation>", "receive what a teammate sent", or they paste a code with
+  intent to receive).
 ---
 
 # Summon
