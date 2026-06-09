@@ -52,6 +52,9 @@ apply_salt() {
 # (symlink, device, fifo, socket). Empty output means safe.
 unsafe_entry() { find "$1" ! -type d ! -type f 2>/dev/null | head -n1; }
 
+# Delete the quarantine and abort if it holds any non-regular file.
+reject_unsafe() { [ -z "$(unsafe_entry "$1")" ] || { rm -rf "$1"; die "unsafe payload: non-regular file present"; }; }
+
 # The single top-level item croc delivered into a quarantine dir (empty if 0 or >1).
 received_entry() {
     set -- "$1"/*
@@ -72,20 +75,23 @@ do_send() {
     need_croc
     src="$1"
     [ -e "$src" ] || die "no such path: $src"
+    name="$(basename "$src")"
     code="$(gen_incantation)"
     secret="$(apply_salt "$code")"
     if [ -n "${SUMMON_SALT:-}" ]; then
-        share="Summon this: $code  ($(basename "$src"))"
+        share="Summon this: $code  ($name)"
     else
-        share="Summon this: $code  ($(basename "$src")) — receive with: croc $code"
+        share="Summon this: $code  ($name) — receive with: croc $code"
     fi
     clip="no"
     command -v pbcopy >/dev/null 2>&1 && printf '%s' "$share" | pbcopy && clip="yes"
-    # to stderr so the agent sees these immediately while croc keeps serving
+    # On stderr: this process blocks on croc and never returns to flush a
+    # block-buffered stdout pipe, but stderr is unbuffered — so the agent's
+    # background reader sees the incantation immediately while croc serves.
     {
         echo "status: serving"
         echo "incantation: $code"
-        echo "name: $(basename "$src")"
+        echo "name: $name"
         echo "clipboard: $clip"
         echo "share_line: $share"
     } >&2
@@ -109,8 +115,7 @@ do_receive() {
         msg="$(cat "$q/.log" 2>/dev/null)"; rm -rf "$q"; die "transfer failed: $msg"
     fi
     rm -f "$q/.log"
-    bad="$(unsafe_entry "$q")"
-    [ -z "$bad" ] || { rm -rf "$q"; die "unsafe payload: non-regular file present"; }
+    reject_unsafe "$q"
     entry="$(received_entry "$q")"
     name="payload"; [ -n "$entry" ] && name="$(basename "$entry")"
     echo "status: ok"
@@ -125,8 +130,7 @@ do_place() {
     q="$1"
     [ -d "$q" ] || die "no such quarantine: $q"
     overwrite="no"; [ "${2:-}" = "--overwrite" ] && overwrite="yes"
-    bad="$(unsafe_entry "$q")"
-    [ -z "$bad" ] || { rm -rf "$q"; die "unsafe payload: non-regular file present"; }
+    reject_unsafe "$q"
     entry="$(received_entry "$q")"
     [ -n "$entry" ] || die "expected one received item; inspect $q manually"
     dest="$PWD/$(basename "$entry")"
@@ -140,7 +144,8 @@ do_place() {
 
 do_discard() {
     q="$1"
-    case "$q" in *summon.*) ;; *) die "not a summon quarantine: $q" ;; esac
+    # guard rm -rf: the basename must be one of our mktemp quarantines
+    case "${q##*/}" in summon.*) ;; *) die "not a summon quarantine: $q" ;; esac
     [ -d "$q" ] && rm -rf "$q"
     echo "status: ok"
     echo "discarded: $q"
