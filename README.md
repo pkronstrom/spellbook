@@ -65,7 +65,7 @@ spellbook/
     summon/
       SKILL.md         # how Claude drives the skill
       summon.sh        # thin POSIX-sh wrapper around croc
-  docs/                # design notes (spec + plan)
+      wordlist.txt     # spoken-friendly words for incantations
 ```
 
 ## Design
@@ -75,3 +75,14 @@ traversal, folder packaging, and integrity. `summon.sh` only adds ergonomics:
 backgrounded send + code capture, a clipboard share line, and a
 quarantine → review → safe-place receive flow. Runtime dependencies are just
 **croc** and **sh** — nothing else.
+
+## Credits
+
+- [croc](https://github.com/schollz/croc) by Zack Scholl — the secure transfer engine.
+- `skills/summon/wordlist.txt` is derived from the
+  [EFF Short Wordlist](https://www.eff.org/dice) by the Electronic Frontier
+  Foundation, licensed under [CC BY 3.0 US](https://creativecommons.org/licenses/by/3.0/us/).
+
+## License
+
+[MIT](LICENSE) © Peter Kronström
