@@ -1,0 +1,14 @@
+[project]
+name = "spellbook"
+version = "0.1.0"
+description = "A bundle of Claude skills (dev/test harness)."
+requires-python = ">=3.11"
+dependencies = []
+
+# Dev/test config only. Skills under skills/<name>/ are plain files and ship
+# WITHOUT this file or the tests/ directory.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["skills/summon"]
+markers = ["integration: requires the croc binary on PATH"]
