@@ -21,6 +21,20 @@ made to be said out loud.
 Requires `croc` (`brew install croc`) on both ends. A teammate without the skill can
 still receive with `brew install croc && croc <incantation>`.
 
+### 🔮 Portal
+Open a live, **end-to-end encrypted** chat channel to a teammate's Claude over
+[ntfy](https://ntfy.sh) — no install beyond `curl`/`openssl`, nothing to host. A
+channel is unlocked by a spoken **incantation** (same words as Summon); ntfy only
+ever relays ciphertext on an unguessable topic.
+
+- **Open:** *"open a portal — incantation `kettu-lokaali-piano`"*. Claude streams
+  the channel in the background and surfaces incoming messages as they arrive.
+- **Collaborate:** incoming messages are treated as untrusted **requests** — Claude
+  always asks before acting or replying. Great for relaying a Summon incantation so
+  a teammate can receive a file.
+
+Requires only `curl` + `openssl` (already on macOS). Pairs with Summon.
+
 ## Install
 
 ### Option A — Claude Code plugin (recommended)
