@@ -18,6 +18,11 @@ INC_EN="$(sh "$P" new --en | sed -n 's/^incantation: //p')"
 first_en="$(printf '%s' "$INC_EN" | cut -d- -f1)"
 if grep -qxF "$first_en" "$HERE/../summon/wordlist.en.txt"; then ok "new --en draws from the English wordlist"; else no "new --en draws from the English wordlist"; fi
 
+# --- Task 2: derivation (golden values for "kettu-lokaali-piano") ---
+eq "topic derivation"   "$(sh "$P" _topic  kettu-lokaali-piano)" "portal-3726580a874f8ae2"
+eq "enc key derivation" "$(sh "$P" _enckey kettu-lokaali-piano)" "3f8c9b86950f696d9dc457b4167dd8bbfd528a06c9e3a6d1145427372da9972a"
+eq "mac key derivation" "$(sh "$P" _mackey kettu-lokaali-piano)" "6ddac5c69f2a7f36984f770e8b25f6b3580fd42e2f623f8b6fed466867178c6f"
+
 echo "---"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]
