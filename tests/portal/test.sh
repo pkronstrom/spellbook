@@ -160,6 +160,23 @@ eq "msg_text extracts text with quotes and braces" "$(sh "$P" _msgtext "$PT")" '
 PT2='{"id":"y","from":"b","ts":2,"text":"trailing brace}"}'
 eq "msg_text handles text ending in a brace" "$(sh "$P" _msgtext "$PT2")" 'trailing brace}'
 
+# --- Task 7: local mode (shared bus, no crypto, sid echo-skip, addressing) ---
+A_SID="loc-a-$$"; B_SID="loc-b-$$"
+A_NAME="$(CLAUDE_CODE_SESSION_ID=$A_SID sh "$P" whoami)"
+B_NAME="$(CLAUDE_CODE_SESSION_ID=$B_SID sh "$P" whoami)"
+if [ -n "$A_NAME" ] && [ "$A_NAME" != "$B_NAME" ]; then ok "sessions get distinct magical local names"; else no "sessions get distinct magical local names"; fi
+CLAUDE_CODE_SESSION_ID=$A_SID sh "$P" send "broadcast hi" --local >/dev/null
+CLAUDE_CODE_SESSION_ID=$B_SID sh "$P" send "for A only" --local --to "$A_NAME" >/dev/null
+B_VIEW="$(CLAUDE_CODE_SESSION_ID=$B_SID sh "$P" read --local)"
+case "$B_VIEW" in *"broadcast hi"*) ok "local: B sees A's broadcast" ;; *) no "local: B sees A's broadcast"; echo "    got: $B_VIEW" ;; esac
+case "$B_VIEW" in *"for A only"*) no "local: B must NOT see its own send" ;; *) ok "local: own send is skipped (echo-skip by sid)" ;; esac
+A_VIEW="$(CLAUDE_CODE_SESSION_ID=$A_SID sh "$P" read --local)"
+case "$A_VIEW" in *"	$A_NAME	for A only"*) ok "local: directed --to lands addressed to the target" ;; *) no "local: directed --to lands addressed to the target"; echo "    got: $A_VIEW" ;; esac
+WHO="$(sh "$P" who)"
+case "$WHO" in *"$A_NAME"*) a_in=1 ;; *) a_in=0 ;; esac
+case "$WHO" in *"$B_NAME"*) b_in=1 ;; *) b_in=0 ;; esac
+if [ "$a_in" = 1 ] && [ "$b_in" = 1 ]; then ok "local: who lists both sessions"; else no "local: who lists both sessions"; fi
+
 echo "---"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]

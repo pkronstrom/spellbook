@@ -23,6 +23,12 @@
 #   read [--channel <topic>]              print inbox lines new since the last read
 #   wait [--channel <topic>]              block until a new inbox line appears, print it, exit
 #   close [--channel <topic>]             stop the background streamer (does not delete anything)
+#
+# Local mode (same machine — a shared plaintext bus, no relay/crypto/streamer):
+#   send <text> --local [--to <name>]     post to the local bus (broadcast, or to one session)
+#   read --local / wait --local           read/await local messages (your own are skipped)
+#   who                                   list local session names you can reach
+#   whoami                                this session's local name (auto magical; PORTAL_NAME overrides)
 set -eu
 umask 077
 
@@ -35,6 +41,15 @@ STATE_ROOT="${TMPDIR:-/tmp}"
 # looks successful but never arrives. Reject oversized messages loudly instead. Raise
 # only if you self-host ntfy with a larger message-size-limit.
 PORTAL_MAX_WIRE="${PORTAL_MAX_WIRE:-3900}"
+
+# --- local mode: one shared plaintext bus for agents on THIS machine ------------
+# Same user, same host -> same trust domain, so no relay, no encryption, no streamer.
+# Sessions are told apart by a unique magical name (override with PORTAL_NAME).
+LOCAL_DIR="$STATE_ROOT/portal-local"
+BUS="$LOCAL_DIR/bus.log"
+ROSTER="$LOCAL_DIR/roster"
+MAGIC_ADJ="ember frost moon silver dusk raven thorn gilt shadow opal amber slate jade onyx ivory cobalt"
+MAGIC_NOUN="fox whistle thistle lantern sparrow willow quill cinder bramble heron marsh wisp drake reed vale glimmer"
 
 die() { echo "status: error"; echo "error: $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found"; }
@@ -257,6 +272,66 @@ do_close() { # $1=channel(optional) — stop ALL streamers for the channel (dele
     echo "status: closed"
 }
 
+# --- local mode helpers ---------------------------------------------------------
+# A stable, unique-ish magical name for this session (override with PORTAL_NAME, e.g.
+# a purpose-based name the agent picks). Derived from the session id so it's stable.
+session_name() {
+    [ -n "${PORTAL_NAME:-}" ] && { printf '%s' "$PORTAL_NAME"; return 0; }
+    h="$(printf '%s' "$(session_id)" | openssl dgst -sha256 | awk '{print $NF}')"
+    ai=$(( 0x$(printf '%s' "$h" | cut -c1-2) % 16 )); ni=$(( 0x$(printf '%s' "$h" | cut -c3-4) % 16 ))
+    adj="$(printf '%s\n' $MAGIC_ADJ | sed -n "$((ai+1))p")"
+    noun="$(printf '%s\n' $MAGIC_NOUN | sed -n "$((ni+1))p")"
+    printf '%s-%s' "$adj" "$noun"
+}
+
+local_register() { # announce this session on the roster (sid -> name), once
+    mkdir -p "$LOCAL_DIR"; : >> "$ROSTER"
+    sid="$(session_id)"
+    grep -q "^$sid	" "$ROSTER" 2>/dev/null || printf '%s\t%s\n' "$sid" "$(session_name)" >> "$ROSTER"
+}
+
+do_local_send() { # $1=text $2=to(optional name; empty = broadcast)
+    need openssl
+    text="$1"; to="${2:-}"
+    mkdir -p "$LOCAL_DIR"; : >> "$BUS"; local_register
+    # plaintext line: ts \t sid \t from \t to \t text  (tabs/newlines in text flattened)
+    safe="$(printf '%s' "$text" | tr '\n\r\t' '   ')"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(session_id)" "$(session_name)" "$to" "$safe" >> "$BUS"
+    echo "status: sent-local"
+    echo "as: $(session_name)"
+    [ -n "$to" ] && echo "to: $to" || echo "to: (broadcast)"
+}
+
+# print bus lines new since this session's cursor, dropping our own (by sid),
+# reformatted as the standard inbox columns: ts \t from \t to \t text
+_local_drain() { # stdout = new foreign lines; advances cursor; returns 0 even if empty
+    mysid="$(session_id)"; cur="$LOCAL_DIR/cursor.$mysid"
+    n="$(cat "$cur" 2>/dev/null || echo 0)"; total="$(wc -l < "$BUS" | tr -d ' ')"
+    [ "$n" -gt "$total" ] && n=0
+    [ "$total" -gt "$n" ] && sed -n "$((n+1)),\$p" "$BUS" | awk -F'\t' -v me="$mysid" 'BEGIN{OFS="\t"} $2!=me {print $1,$3,$4,$5}'
+    printf '%s' "$total" > "$cur"
+}
+
+do_local_read() {
+    mkdir -p "$LOCAL_DIR"; : >> "$BUS"; local_register
+    _local_drain
+}
+
+do_local_wait() {
+    mkdir -p "$LOCAL_DIR"; : >> "$BUS"; local_register
+    while :; do
+        out="$(_local_drain)"
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        sleep 2
+    done
+}
+
+do_who() {
+    [ -f "$ROSTER" ] || { echo "no local sessions yet"; return 0; }
+    echo "local sessions reachable on this machine:"
+    awk -F'\t' '{print "  " $2}' "$ROSTER" | sort -u
+}
+
 do_new() {
     lang=fi
     case "${1:-}" in --en) lang=en ;; --fi|"") lang=fi ;; *) die "usage: portal.sh new [--fi|--en]" ;; esac
@@ -270,22 +345,42 @@ cmd="${1:-}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
     new) do_new "${1:-}" ;;
     send)
-        [ "$#" -ge 1 ] || die "usage: portal.sh send <text> [--from <name>] [--to <name>] [--channel <topic>]"
+        [ "$#" -ge 1 ] || die "usage: portal.sh send <text> [--from <name>] [--to <name>] [--channel <topic>] [--local]"
         s_text="$1"; shift
-        s_from=""; s_to=""; s_ch=""
+        s_from=""; s_to=""; s_ch=""; s_local=0
         while [ "$#" -gt 0 ]; do
             case "$1" in
                 --from)    s_from="${2:-}"; shift 2 ;;
                 --to)      s_to="${2:-}"; shift 2 ;;
                 --channel) s_ch="${2:-}"; shift 2 ;;
-                *)         die "unknown send option: $1 (use --from / --to / --channel)" ;;
+                --local)   s_local=1; shift ;;
+                *)         die "unknown send option: $1 (use --from / --to / --channel / --local)" ;;
             esac
         done
-        do_send "$s_ch" "$s_text" "$s_from" "$s_to" ;;
+        if [ "$s_local" = 1 ]; then
+            [ -n "$s_from" ] && PORTAL_NAME="$s_from"   # --from overrides this session's local name
+            do_local_send "$s_text" "$s_to"
+        else
+            do_send "$s_ch" "$s_text" "$s_from" "$s_to"
+        fi ;;
     open) [ "$#" -ge 1 ] || die "usage: portal.sh open <incantation>"; do_open "$1" ;;
-    read)  ch=""; case "${1:-}" in "") ;; --channel) ch="${2:-}" ;; *) die "usage: portal.sh read [--channel <topic>]" ;; esac;  do_read "$ch" ;;
-    wait)  ch=""; case "${1:-}" in "") ;; --channel) ch="${2:-}" ;; *) die "usage: portal.sh wait [--channel <topic>]" ;; esac;  do_wait "$ch" ;;
+    read)
+        loc=0; ch=""
+        while [ "$#" -gt 0 ]; do case "$1" in
+            --local) loc=1; shift ;; --channel) ch="${2:-}"; shift 2 ;;
+            *) die "usage: portal.sh read [--channel <topic>] [--local]" ;;
+        esac; done
+        if [ "$loc" = 1 ]; then do_local_read; else do_read "$ch"; fi ;;
+    wait)
+        loc=0; ch=""
+        while [ "$#" -gt 0 ]; do case "$1" in
+            --local) loc=1; shift ;; --channel) ch="${2:-}"; shift 2 ;;
+            *) die "usage: portal.sh wait [--channel <topic>] [--local]" ;;
+        esac; done
+        if [ "$loc" = 1 ]; then do_local_wait; else do_wait "$ch"; fi ;;
     close) ch=""; case "${1:-}" in "") ;; --channel) ch="${2:-}" ;; *) die "usage: portal.sh close [--channel <topic>]" ;; esac; do_close "$ch" ;;
+    who)    need openssl; do_who ;;
+    whoami) need openssl; printf '%s\n' "$(session_name)" ;;
     _bind) [ "$#" -ge 1 ] || die "usage: _bind <inc>"; need openssl; bind_channel "$1" >/dev/null; echo "status: bound" ;;
     _topic)  [ "$#" -ge 1 ] || die "usage: _topic <inc>";  need openssl; topic_for "$1" ;;
     _enckey) [ "$#" -ge 1 ] || die "usage: _enckey <inc>"; need openssl; enc_key_for "$1" ;;
