@@ -32,8 +32,9 @@ ever relays ciphertext on an unguessable topic.
 - **Collaborate:** incoming messages are treated as untrusted **requests** — Claude
   always asks before acting or replying. Great for relaying a Summon incantation so
   a teammate can receive a file.
-- **Local mode:** for agents on the *same* machine, *"talk to my other sessions"* uses
-  `--local` — a shared plaintext bus (no relay, no crypto, no incantation). Each session
+- **Local mode (the Portling):** for agents on the *same* machine, *"talk to my other
+  sessions"* uses `--local` — a shared plaintext bus (no relay, no crypto, no incantation),
+  the Portal's lesser cousin. Each session
   takes a unique magical name; address one with `--to <name>` or broadcast. Trust is
   lighter locally, but obviously-suspicious requests are still refused.
 
