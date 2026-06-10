@@ -108,6 +108,33 @@ do_open() { # $1=incantation — BLOCKS streaming; run in background
     done
 }
 
+do_read() { # $1=incantation — print inbox lines new since last read
+    inc="$1"; d="$(dir_for "$inc")"; inbox="$d/inbox.log"
+    [ -f "$inbox" ] || die "no portal inbox for that incantation (is it open?)"
+    off="$d/read.offset"; n="$(cat "$off" 2>/dev/null || echo 0)"
+    total="$(wc -l < "$inbox" | tr -d ' ')"
+    [ "$total" -gt "$n" ] && sed -n "$((n+1)),\$p" "$inbox"
+    printf '%s' "$total" > "$off"
+}
+
+do_wait() { # $1=incantation — block until a new inbox line appears, print it, exit
+    inc="$1"; d="$(dir_for "$inc")"; inbox="$d/inbox.log"
+    [ -f "$inbox" ] || die "no portal inbox for that incantation (is it open?)"
+    start="$(wc -l < "$inbox" | tr -d ' ')"
+    while :; do
+        cur="$(wc -l < "$inbox" | tr -d ' ')"
+        if [ "$cur" -gt "$start" ]; then sed -n "$((start+1)),\$p" "$inbox"; return 0; fi
+        sleep 2
+    done
+}
+
+do_close() { # $1=incantation — stop the background streamer
+    inc="$1"; d="$(dir_for "$inc")"
+    pid="$(cat "$d/listener.pid" 2>/dev/null || true)"
+    if [ -n "$pid" ]; then pkill -P "$pid" 2>/dev/null || true; kill "$pid" 2>/dev/null || true; fi
+    echo "status: closed"
+}
+
 do_new() {
     lang=fi
     case "${1:-}" in --en) lang=en ;; --fi|"") lang=fi ;; *) die "usage: portal.sh new [--fi|--en]" ;; esac
@@ -127,6 +154,9 @@ case "$cmd" in
         case "${1:-}" in --from) s_from="${2:-}" ;; esac
         do_send "$s_inc" "$s_text" "$s_from" ;;
     open) [ "$#" -ge 1 ] || die "usage: portal.sh open <incantation>"; do_open "$1" ;;
+    read)  [ "$#" -ge 1 ] || die "usage: portal.sh read <incantation>";  do_read "$1" ;;
+    wait)  [ "$#" -ge 1 ] || die "usage: portal.sh wait <incantation>";  do_wait "$1" ;;
+    close) [ "$#" -ge 1 ] || die "usage: portal.sh close <incantation>"; do_close "$1" ;;
     _topic)  [ "$#" -ge 1 ] || die "usage: _topic <inc>";  need openssl; topic_for "$1" ;;
     _enckey) [ "$#" -ge 1 ] || die "usage: _enckey <inc>"; need openssl; enc_key_for "$1" ;;
     _mackey) [ "$#" -ge 1 ] || die "usage: _mackey <inc>"; need openssl; mac_key_for "$1" ;;

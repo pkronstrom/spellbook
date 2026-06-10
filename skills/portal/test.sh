@@ -68,6 +68,20 @@ else
     ok "skipped network loopback (set PORTAL_TEST_NET=1 to run it)"
 fi
 
+# --- Task 6: read/wait/close against a hand-seeded inbox (no network) ---
+FINC="fake-portal-channel-xyz"
+FDIR="${TMPDIR:-/tmp}/portal.$(sh "$P" _topic "$FINC")"
+mkdir -p "$FDIR"; : > "$FDIR/inbox.log"
+printf '1700000000\tesko\tfirst\n' >> "$FDIR/inbox.log"
+eq "read returns new line"        "$(sh "$P" read "$FINC")" "$(printf '1700000000\tesko\tfirst')"
+eq "read returns nothing second time" "$(sh "$P" read "$FINC")" ""
+printf '1700000001\tesko\tsecond\n' >> "$FDIR/inbox.log"
+eq "read returns only the new line" "$(sh "$P" read "$FINC")" "$(printf '1700000001\tesko\tsecond')"
+( sleep 1; printf '1700000002\tesko\tthird\n' >> "$FDIR/inbox.log" ) &
+eq "wait blocks then returns the appended line" "$(sh "$P" wait "$FINC")" "$(printf '1700000002\tesko\tthird')"
+sh "$P" close "$FINC" >/dev/null 2>&1; ok "close exits cleanly (idempotent)"
+rm -rf "$FDIR"
+
 echo "---"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]
