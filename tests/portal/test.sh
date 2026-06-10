@@ -25,10 +25,10 @@ INC_EN="$(sh "$P" new --en | sed -n 's/^incantation: //p')"
 first_en="$(printf '%s' "$INC_EN" | cut -d- -f1)"
 if grep -qxF "$first_en" "$ROOT/skills/summon/wordlist.en.txt"; then ok "new --en draws from the English wordlist"; else no "new --en draws from the English wordlist"; fi
 
-# --- Task 2: derivation (golden values for "kettu-lokaali-piano") ---
-eq "topic derivation"   "$(sh "$P" _topic  kettu-lokaali-piano)" "portal-3726580a874f8ae2"
-eq "enc key derivation" "$(sh "$P" _enckey kettu-lokaali-piano)" "3f8c9b86950f696d9dc457b4167dd8bbfd528a06c9e3a6d1145427372da9972a"
-eq "mac key derivation" "$(sh "$P" _mackey kettu-lokaali-piano)" "6ddac5c69f2a7f36984f770e8b25f6b3580fd42e2f623f8b6fed466867178c6f"
+# --- Task 2: derivation (PBKDF2 golden values for "kettu-lokaali-piano", iter=600000) ---
+eq "topic derivation"   "$(sh "$P" _topic  kettu-lokaali-piano)" "portal-7c056b4092c4cf5e"
+eq "enc key derivation" "$(sh "$P" _enckey kettu-lokaali-piano)" "5a326e0aa128bcc5ab0aa15e8a8f29d7baaf1b5d25fd865e3b4eb7e32c6d0430"
+eq "mac key derivation" "$(sh "$P" _mackey kettu-lokaali-piano)" "2678e0f913f99e04e3e8f414e901c219a565e1a575d3aafdb4abbd58b5593dd5"
 
 # --- Task 2b: incantation normalization (spaces/case/hyphens -> one channel) ---
 CANON="$(sh "$P" _topic 'banaani-polku-gorilla')"
@@ -47,7 +47,7 @@ if sh "$P" _decrypt vaara-sana-tassa "$WIRE" >/dev/null 2>&1; then no "wrong inc
 TAMP="$(printf '%s' "$WIRE" | sed 's/.$/X/')"
 if sh "$P" _decrypt kettu-lokaali-piano "$TAMP" >/dev/null 2>&1; then no "tampered ciphertext rejected"; else ok "tampered ciphertext rejected"; fi
 
-eq "wire format is v1 with 4 dot fields" "$(printf '%s' "$WIRE" | awk -F. '{print $1, NF}')" "v1 4"
+eq "wire format is v2 with 4 dot fields" "$(printf '%s' "$WIRE" | awk -F. '{print $1, NF}')" "v2 4"
 
 # --- Task 4: send uses the active channel after open/bind (no incantation on send) ---
 # send before any open has no active channel -> must error

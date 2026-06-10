@@ -2,8 +2,9 @@
 # portal.sh — thin wrapper for end-to-end-encrypted agent-to-agent chat over ntfy.
 #
 # A channel is identified by a 3-word incantation (same wordlists as the summon
-# skill). The incantation derives an unguessable ntfy topic plus two keys; every
-# message is AES-256-CBC encrypted then HMAC-SHA256 authenticated (encrypt-then-
+# skill). The incantation is run through PBKDF2-HMAC-SHA256 to derive the ntfy topic
+# plus two keys (so the relay can't cheaply brute-force the spoken secret); every
+# message is then AES-256-CBC encrypted and HMAC-SHA256 authenticated (encrypt-then-
 # MAC), so ntfy only ever relays ciphertext on a topic nobody can guess.
 #
 # The incantation is spoken to the script ONCE, at `open`: it derives the keys,
@@ -33,7 +34,6 @@ STATE_ROOT="${TMPDIR:-/tmp}"
 die() { echo "status: error"; echo "error: $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found"; }
 
-sha256_hex() { openssl dgst -sha256 | awk '{print $NF}'; }
 # Accept the incantation however it was spoken/typed — spaces or hyphens, any case
 # ("banaani polku gorilla" == "Banaani-Polku-Gorilla") — and fold it to the canonical
 # lowercase word-word-word form before deriving anything. WITHOUT this, the same words
@@ -41,9 +41,26 @@ sha256_hex() { openssl dgst -sha256 | awk '{print $NF}'; }
 normalize_incantation() {
     printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s ' ._-' '-' | sed -e 's/^-*//' -e 's/-*$//'
 }
-topic_for()   { i="$(normalize_incantation "$1")"; h="$(printf 'topic:%s' "$i" | sha256_hex)"; printf 'portal-%s' "$(printf '%s' "$h" | cut -c1-16)"; }
-enc_key_for() { printf 'enc:%s' "$(normalize_incantation "$1")" | sha256_hex; }
-mac_key_for() { printf 'mac:%s' "$(normalize_incantation "$1")" | sha256_hex; }
+
+# Derive topic + keys with PBKDF2-HMAC-SHA256 (RFC 2898), NOT a bare SHA-256. The ntfy
+# topic is visible to the relay, so a bare hash lets it brute-force the ~3-word spoken
+# secret offline (seconds). PBKDF2 makes EACH guess cost PORTAL_ITER iterations, turning
+# that into days+. `openssl enc -pbkdf2 ... -P` prints the derived key and behaves
+# identically on stock-macOS LibreSSL and OpenSSL 3 (verified). Domain-separated salts
+# keep topic/enc/mac independent. Cost is paid ONCE per open (keys are cached), not per
+# message. Changing PORTAL_ITER changes the channel — both sides must match.
+PORTAL_ITER=600000
+SALT_TOPIC=706f7274616c5f74   # "portal_t"
+SALT_ENC=706f7274616c5f65     # "portal_e"
+SALT_MAC=706f7274616c5f6d     # "portal_m"
+pbkdf2_hex() { # $1=normalized incantation  $2=salt(hex) -> 64 lowercase hex chars
+    k="$(openssl enc -aes-256-cbc -pbkdf2 -iter "$PORTAL_ITER" -md sha256 -pass pass:"$1" -S "$2" -P 2>/dev/null | sed -n 's/^key=//p' | tr 'A-F' 'a-f')"
+    [ -n "$k" ] || die "openssl PBKDF2 unavailable (need OpenSSL 1.1+/LibreSSL with 'enc -pbkdf2 -P')"
+    printf '%s' "$k"
+}
+topic_for()   { printf 'portal-%s' "$(pbkdf2_hex "$(normalize_incantation "$1")" "$SALT_TOPIC" | cut -c1-16)"; }
+enc_key_for() { pbkdf2_hex "$(normalize_incantation "$1")" "$SALT_ENC"; }
+mac_key_for() { pbkdf2_hex "$(normalize_incantation "$1")" "$SALT_MAC"; }
 dir_for()       { printf '%s/portal.%s' "$STATE_ROOT" "$(topic_for "$1")"; }
 dir_for_topic() { printf '%s/portal.%s' "$STATE_ROOT" "$1"; }
 ACTIVE_FILE="$STATE_ROOT/portal.active"
@@ -100,22 +117,22 @@ unb64() { openssl base64 -d -A; }
 # breaking the v1 wire format and the golden test values.
 hmac_hex() { openssl dgst -sha256 -hmac "$1" | awk '{print $NF}'; }
 
-encrypt_with() { # $1=enc_key $2=mac_key $3=plaintext -> v1.<iv_hex>.<ct_b64>.<mac_hex>
+encrypt_with() { # $1=enc_key $2=mac_key $3=plaintext -> v2.<iv_hex>.<ct_b64>.<mac_hex>
     iv="$(openssl rand -hex 16)"
     ct="$(printf '%s' "$3" | openssl enc -aes-256-cbc -K "$1" -iv "$iv" | b64)"
     mac="$(printf '%s%s' "$iv" "$ct" | hmac_hex "$2")"
-    printf 'v1.%s.%s.%s' "$iv" "$ct" "$mac"
+    printf 'v2.%s.%s.%s' "$iv" "$ct" "$mac"
 }
 encrypt_msg() { encrypt_with "$(enc_key_for "$1")" "$(mac_key_for "$1")" "$2"; }  # stateless (for _encrypt / tests)
 
-decrypt_msg() { # $1=incantation $2=wire -> plaintext on stdout; return 1 on any failure
-    case "$2" in v1.*.*.*) ;; *) return 1 ;; esac
-    ek="$(enc_key_for "$1")"; mk="$(mac_key_for "$1")"
-    rest="${2#v1.}"; iv="${rest%%.*}"; rest="${rest#*.}"; ct="${rest%%.*}"; mac="${rest#*.}"
-    want="$(printf '%s%s' "$iv" "$ct" | hmac_hex "$mk")"
+decrypt_with() { # $1=enc_key $2=mac_key $3=wire -> plaintext on stdout; return 1 on any failure
+    case "$3" in v2.*.*.*) ;; *) return 1 ;; esac
+    rest="${3#v2.}"; iv="${rest%%.*}"; rest="${rest#*.}"; ct="${rest%%.*}"; mac="${rest#*.}"
+    want="$(printf '%s%s' "$iv" "$ct" | hmac_hex "$2")"
     [ "$want" = "$mac" ] || return 1
-    printf '%s' "$ct" | unb64 | openssl enc -d -aes-256-cbc -K "$ek" -iv "$iv" 2>/dev/null
+    printf '%s' "$ct" | unb64 | openssl enc -d -aes-256-cbc -K "$1" -iv "$iv" 2>/dev/null
 }
+decrypt_msg() { decrypt_with "$(enc_key_for "$1")" "$(mac_key_for "$1")" "$2"; }  # stateless (for _decrypt / tests)
 
 json_escape() { printf '%s' "$1" | tr '\n\r\t' '   ' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
@@ -150,6 +167,7 @@ msg_text() { sed -n 's/.*"text":"\(.*\)"}$/\1/p' | json_unescape; }
 do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in background
     need openssl; need curl
     inc="$1"; topic="$(bind_channel "$inc")"; d="$(dir_for_topic "$topic")"
+    load_keys "$d"   # ek, mk from the cached keys bind wrote — PBKDF2 paid once, not per message
     inbox="$d/inbox.log"; seen="$d/seen.ids"; ownsent="$d/sent.$(session_id).ids"
     : >> "$inbox"; : >> "$seen"; : >> "$ownsent"; echo "$$" > "$d/listener.pid"
     { echo "status: open"; echo "topic: $topic"; echo "inbox: $inbox"; } >&2
@@ -161,9 +179,9 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
             case "$line" in *'"event":"message"'*) ;; *) continue ;; esac
             nid="$(printf '%s' "$line" | json_field id)"
             [ -n "$nid" ] && printf '%s' "$nid" > "$d/last.id"
-            blob="$(printf '%s' "$line" | sed -n 's/.*"message":"\(v1\.[^"]*\)".*/\1/p')"
+            blob="$(printf '%s' "$line" | sed -n 's/.*"message":"\(v2\.[^"]*\)".*/\1/p')"
             [ -n "$blob" ] || continue
-            pt="$(decrypt_msg "$inc" "$blob")" || continue
+            pt="$(decrypt_with "$ek" "$mk" "$blob")" || continue
             mid="$(printf '%s' "$pt" | json_field id)"
             # skip our own echo (we published it), then dedup repeats
             [ -n "$mid" ] && grep -qxF "$mid" "$ownsent" 2>/dev/null && continue

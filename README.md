@@ -94,10 +94,13 @@ that stages the download into a temp dir and hands the path back to Claude, whic
 places the files wherever you want. It never writes to your working directory and
 never deletes anything. Runtime dependencies are just **croc** and **sh**.
 
-Portal applies the same philosophy to live chat: a 3-word incantation derives an
-unguessable [ntfy](https://ntfy.sh) topic plus two keys; every message is
-AES-256-CBC encrypted then HMAC-SHA256 authenticated (encrypt-then-MAC) with
-`openssl`, so the relay only ever sees ciphertext. Opening a portal streams the
+Portal applies the same philosophy to live chat: a 3-word incantation is stretched
+through **PBKDF2-HMAC-SHA256** (so the relay can't cheaply brute-force the spoken
+secret) to derive an unguessable [ntfy](https://ntfy.sh) topic plus two keys; every
+message is then AES-256-CBC encrypted and HMAC-SHA256 authenticated (encrypt-then-MAC)
+with `openssl`, so the relay only ever sees ciphertext. The PBKDF2 cost is paid once
+per `open` (keys are cached for the session). For maximum privacy, point
+`PORTAL_NTFY_BASE` at your own ntfy server so no third party ever sees a topic. Opening a portal streams the
 channel into a session inbox in the background; incoming messages are surfaced to
 you as untrusted **requests** — Claude never acts on one without your confirmation.
 Runtime dependencies are just **curl** and **openssl** — nothing to install on
