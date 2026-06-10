@@ -77,6 +77,37 @@ do_send() { # $1=incantation $2=text $3=from(optional)
     echo "to_topic: $topic"
 }
 
+json_field() { sed -n "s/.*\"$1\":\"\\([^\"]*\\)\".*/\\1/p"; }
+json_unescape() { sed -e 's/\\"/"/g' -e 's/\\\\/\\/g'; }
+
+do_open() { # $1=incantation — BLOCKS streaming; run in background
+    need openssl; need curl
+    inc="$1"; topic="$(topic_for "$inc")"; d="$(dir_for "$inc")"
+    mkdir -p "$d"; inbox="$d/inbox.log"; seen="$d/seen.ids"
+    : >> "$inbox"; : >> "$seen"; echo "$$" > "$d/listener.pid"
+    { echo "status: open"; echo "topic: $topic"; echo "inbox: $inbox"; } >&2
+    while :; do
+        url="$NTFY_BASE/$topic/json"
+        last="$(cat "$d/last.id" 2>/dev/null || true)"
+        [ -n "$last" ] && url="$url?since=$last"
+        curl -sN "$url" 2>/dev/null | while IFS= read -r line; do
+            case "$line" in *'"event":"message"'*) ;; *) continue ;; esac
+            nid="$(printf '%s' "$line" | json_field id)"
+            [ -n "$nid" ] && printf '%s' "$nid" > "$d/last.id"
+            blob="$(printf '%s' "$line" | sed -n 's/.*"message":"\(v1\.[^"]*\)".*/\1/p')"
+            [ -n "$blob" ] || continue
+            pt="$(decrypt_msg "$inc" "$blob")" || continue
+            mid="$(printf '%s' "$pt" | json_field id)"
+            [ -n "$mid" ] && grep -qxF "$mid" "$seen" 2>/dev/null && continue
+            [ -n "$mid" ] && printf '%s\n' "$mid" >> "$seen"
+            from="$(printf '%s' "$pt" | json_field from)"
+            txt="$(printf '%s' "$pt" | sed -n 's/.*"text":"\(.*\)"}$/\1/p' | json_unescape)"
+            printf '%s\t%s\t%s\n' "$(date +%s)" "$from" "$txt" >> "$inbox"
+        done
+        sleep 2
+    done
+}
+
 do_new() {
     lang=fi
     case "${1:-}" in --en) lang=en ;; --fi|"") lang=fi ;; *) die "usage: portal.sh new [--fi|--en]" ;; esac
@@ -95,6 +126,7 @@ case "$cmd" in
         s_from=""
         case "${1:-}" in --from) s_from="${2:-}" ;; esac
         do_send "$s_inc" "$s_text" "$s_from" ;;
+    open) [ "$#" -ge 1 ] || die "usage: portal.sh open <incantation>"; do_open "$1" ;;
     _topic)  [ "$#" -ge 1 ] || die "usage: _topic <inc>";  need openssl; topic_for "$1" ;;
     _enckey) [ "$#" -ge 1 ] || die "usage: _enckey <inc>"; need openssl; enc_key_for "$1" ;;
     _mackey) [ "$#" -ge 1 ] || die "usage: _mackey <inc>"; need openssl; mac_key_for "$1" ;;

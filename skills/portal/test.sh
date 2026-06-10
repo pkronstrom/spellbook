@@ -47,6 +47,27 @@ case "$DEC" in
     *) no "send payload carries text"; echo "    got: $DEC" ;;
 esac
 
+# --- Task 5: live loopback through ntfy (only with PORTAL_TEST_NET=1) ---
+if [ "${PORTAL_TEST_NET:-0}" = "1" ]; then
+    LINC="loopback-$(openssl rand -hex 4 | sed 's/\(..\)\(..\)\(..\)\(..\)/\1-\2-\3/')"
+    sh "$P" open "$LINC" >/dev/null 2>&1 &
+    OPID=$!
+    sleep 3
+    sh "$P" send "$LINC" "loopback ping" --from tester >/dev/null
+    got=""
+    i=0
+    while [ "$i" -lt 10 ]; do
+        line="$(sh "$P" read "$LINC" 2>/dev/null || true)"
+        case "$line" in *"loopback ping"*) got="yes"; break ;; esac
+        i=$((i+1)); sleep 1
+    done
+    sh "$P" close "$LINC" >/dev/null 2>&1 || true
+    kill "$OPID" 2>/dev/null || true
+    eq "loopback message arrives decrypted in inbox" "$got" "yes"
+else
+    ok "skipped network loopback (set PORTAL_TEST_NET=1 to run it)"
+fi
+
 echo "---"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]
