@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 .venv/
+
+# local working docs (specs/plans) — not part of the published skill bundle
+docs/superpowers/
