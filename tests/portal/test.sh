@@ -135,6 +135,19 @@ eq "read returns only the new line" "$(sh "$P" read --channel "$FTOPIC")" "$(pri
 eq "wait blocks then returns the appended line" "$(sh "$P" wait --channel "$FTOPIC")" "$(printf '1700000002\tesko\t\tthird')"
 sh "$P" close --channel "$FTOPIC" >/dev/null 2>&1; ok "close exits cleanly (idempotent)"
 
+# close kills ALL registered streamers, not just one (multi-streamer robustness)
+FINC2="fake-multi-$(openssl rand -hex 4)"; FTOPIC2="$(sh "$P" _topic "$FINC2")"; FDIR2="$TMPDIR/portal.$FTOPIC2"
+mkdir -p "$FDIR2"
+sleep 30 & MP1=$!; sleep 30 & MP2=$!
+printf '%s\n%s\n' "$MP1" "$MP2" > "$FDIR2/listeners"
+sh "$P" close --channel "$FTOPIC2" >/dev/null 2>&1
+sleep 1
+if kill -0 "$MP1" 2>/dev/null || kill -0 "$MP2" 2>/dev/null; then
+    no "close kills every registered streamer"; kill "$MP1" "$MP2" 2>/dev/null || true
+else
+    ok "close kills every registered streamer"
+fi
+
 # --- Task 6b: inbox text extraction survives quotes and braces (offline) ---
 PT='{"id":"x","from":"a","ts":1,"text":"reply {ok} say \"hi\""}'
 eq "msg_text extracts text with quotes and braces" "$(sh "$P" _msgtext "$PT")" 'reply {ok} say "hi"'

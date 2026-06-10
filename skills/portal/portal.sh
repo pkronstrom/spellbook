@@ -169,7 +169,8 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
     inc="$1"; topic="$(bind_channel "$inc")"; d="$(dir_for_topic "$topic")"
     load_keys "$d"   # ek, mk from the cached keys bind wrote — PBKDF2 paid once, not per message
     inbox="$d/inbox.log"; seen="$d/seen.ids"; ownsent="$d/sent.$(session_id).ids"
-    : >> "$inbox"; : >> "$seen"; : >> "$ownsent"; echo "$$" > "$d/listener.pid"
+    : >> "$inbox"; : >> "$seen"; : >> "$ownsent"
+    printf '%s\n' "$$" >> "$d/listeners"   # register this streamer so close can kill ALL of them
     { echo "status: open"; echo "topic: $topic"; echo "inbox: $inbox"; } >&2
     while :; do
         url="$NTFY_BASE/$topic/json"
@@ -226,18 +227,26 @@ do_wait() { # $1=channel(optional) — block until there is unread, print ALL un
     printf '%s' "$total" > "$off"
 }
 
-do_close() { # $1=channel(optional) — stop the background streamer (deletes nothing)
+do_close() { # $1=channel(optional) — stop ALL streamers for the channel (deletes nothing)
     need openssl
     topic="$(resolve_topic "${1:-}")"; d="$(dir_for_topic "$topic")"
-    pid="$(cat "$d/listener.pid" 2>/dev/null || true)"
-    if [ -n "$pid" ]; then pkill -P "$pid" 2>/dev/null || true; kill "$pid" 2>/dev/null || true; fi
-    # Belt-and-suspenders: kill the streaming curl directly. Under some shells the
-    # curl in `curl | while` is a grandchild of $$ that pkill -P / kill $$ miss
-    # (orphans reparent to init rather than dying). Its argv carries the unique
-    # topic, so match on that.
+    # Every `open` appended its pid to listeners, so kill each registered streamer and
+    # its children — this catches stray/duplicate streamers a single listener.pid would
+    # miss (e.g. several opens, or two sessions sharing the channel on one host).
+    if [ -f "$d/listeners" ]; then
+        while IFS= read -r pid; do
+            [ -n "$pid" ] || continue
+            pkill -P "$pid" 2>/dev/null || true
+            kill "$pid" 2>/dev/null || true
+        done < "$d/listeners"
+    fi
+    # Belt-and-suspenders: kill any orphaned streaming curl directly. Under some shells
+    # the curl in `curl | while` is a grandchild that pkill -P / kill miss (orphans
+    # reparent to init rather than dying). Its argv carries the unique topic, so match it.
     pkill -f "$topic" 2>/dev/null || true
-    # NOTE: intentionally leaves the channel dir (keys, inbox) in place — this
-    # script never deletes anything; the OS reaps $TMPDIR.
+    # NOTE: intentionally leaves the channel dir (keys, inbox, listeners) in place —
+    # this script never deletes anything; the OS reaps $TMPDIR. Stale pids in listeners
+    # are harmless (kill of a dead pid is a no-op).
     echo "status: closed"
 }
 
