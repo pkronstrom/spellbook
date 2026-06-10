@@ -191,15 +191,21 @@ do_read() { # $1=channel(optional) — print inbox lines new since last read
     printf '%s' "$total" > "$off"
 }
 
-do_wait() { # $1=channel(optional) — block until a new inbox line appears, print it, exit
+do_wait() { # $1=channel(optional) — block until there is unread, print ALL unread, advance the cursor, exit
     topic="$(resolve_topic "${1:-}")"; d="$(dir_for_topic "$topic")"; inbox="$d/inbox.log"
     [ -f "$inbox" ] || die "no portal inbox for that channel (is it open?)"
-    start="$(wc -l < "$inbox" | tr -d ' ')"
-    while :; do
-        cur="$(wc -l < "$inbox" | tr -d ' ')"
-        if [ "$cur" -gt "$start" ]; then sed -n "$((start+1)),\$p" "$inbox"; return 0; fi
+    # Share read's cursor so a wake delivers everything unread — including messages
+    # that arrived in a re-arm gap or while no wait was armed. Nothing is ever skipped.
+    off="$d/read.offset"; n="$(cat "$off" 2>/dev/null || echo 0)"
+    total="$(wc -l < "$inbox" | tr -d ' ')"
+    [ "$n" -gt "$total" ] && n=0   # stale-offset guard (inbox recreated/truncated)
+    while [ "$total" -le "$n" ]; do
         sleep 2
+        total="$(wc -l < "$inbox" | tr -d ' ')"
+        [ "$n" -gt "$total" ] && n=0
     done
+    sed -n "$((n+1)),\$p" "$inbox"
+    printf '%s' "$total" > "$off"
 }
 
 do_close() { # $1=channel(optional) — stop the background streamer (deletes nothing)
