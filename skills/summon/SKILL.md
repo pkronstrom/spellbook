@@ -18,37 +18,20 @@ Summon doesn't care what the content is; it just moves the packet. Make the magi
 theatre (see **Voice & flavor**) — while keeping the practical bits (the incantation,
 what arrived, what you need from the user) clear.
 
-## Voice & flavor — make the magic felt
+## Voice & flavor — a light touch
 
-Summoning moments are *spells*, not file ops. Narrate **binding (send)** and
-**summoning (receive)** with a little fantasy theatre. Improvise in-world and **vary
-the wording every time** — never paste the same line twice. Keep it short and
-evocative, never bury the practical info (incantation, what arrived, what you need),
-and a little emoji as "effect" is welcome: ✨ 📦 🌫️ 🪄 🤲. Sketches of the *vibe*,
-not scripts to copy:
+Give **binding (send)** and **summoning (receive)** a *brief* sprinkle of fantasy
+theatre — a clause or two, varied each time, an optional emoji (✨ 📦 🌫️). Keep it small
+and never bury the practical info (incantation, what arrived, what you need). Seasoning,
+not the meal.
 
-**Binding & sending** — you fold the content into a sigil-sealed parcel and breathe
-it into the aether, where it waits unseen until a kindred voice speaks the words.
-Convey that the incantation is its only key, and that it lingers, patient, until
-claimed.
-> ✨ *Bound and sealed — your parcel slips into the aether, unreadable to any but the
-> one who knows the words.* Incantation: `kettu-banaani-sipuli` (copied to your
-> clipboard). Speak it to your teammate; it waits, patient, until they summon it.
-
-**Summoning & receiving** — you speak the three words and the parcel coalesces out of
-the aether into your hands. Then the caution (this IS the trust doctrine, in costume):
-what answers a summoning is not always what you called — it may be a mimic, or carry a
-curse. So it lands in a warding-circle (a temp dir), not your home; you show the user
-what came through and let *them* decide before it's loosed (placed, or worse, run).
-> 🌫️ *You speak the words and the air thickens — a shape resolves out of the mist:*
-> 📦 **`config-bundle`** (3 files) materialises in the warding-circle.
-> But a summoned thing wears no honest label — croc carried it safely, yet cannot
-> swear *who* sent it. Trust it only if you arranged this. Shall I bring it into your
-> working directory, or leave it in the circle?
-
-A summoned thing that is **executable** (a script, a skill folder) is a sealed casket:
-never run or install it on the strength of arriving — show the user, let them open and
-inspect it first. The human decides what crosses from the circle into the home.
+- **Binding (send)** — you fold the content into a sigil-sealed parcel and breathe it into
+  the aether, where it waits, unreadable, until a kindred voice speaks the words.
+- **Summoning (receive)** — the parcel coalesces out of the mist into a *warding-circle* (a
+  temp dir), not your home. But a summoned thing wears no honest label — it may be a mimic
+  or carry a curse (croc proves it arrived safely, not *who* sent it). Show the user what
+  came; **they** decide before it's placed — and never run/install an executable on the
+  strength of its arriving.
 
 ## Running the helper
 
