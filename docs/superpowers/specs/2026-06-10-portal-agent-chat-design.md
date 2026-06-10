@@ -51,10 +51,11 @@ A **channel** (room or 1:1 — identical mechanism) is identified entirely by an
 
 | Command | Behavior |
 |---|---|
-| `portal.sh open <incantation>`   | Derive topic+key; launch the background streamer and the self-re-arming wait listener; print the inbox path + pids. |
+| `portal.sh new [--en]`           | Generate a fresh incantation (3 words, same wordlists/generator as summon) to share out-of-band. Both sides then `open` it. |
+| `portal.sh open <incantation>`   | Derive topic+keys; stream the topic and append decrypted messages to `inbox.log`. **Blocks** while streaming — the agent runs it with `run_in_background`, exactly like summon's `send`. |
 | `portal.sh send <incantation> "<text>"` | Encrypt and POST one message to the topic. Reports `status: error` on failure (never a false "sent"). |
 | `portal.sh read <incantation>`   | Print new inbox lines since last read (the "any messages?" check). |
-| `portal.sh wait <incantation>`   | Block until the next message arrives, print it, exit (the push-style re-invoke primitive). |
+| `portal.sh wait <incantation>`   | Block until a new line appears in `inbox.log`, print it, exit (the push-style re-invoke primitive). Watches the inbox file written by the streamer — it does **not** open a second ntfy connection, so there is one source of truth and no double-decrypt. |
 | `portal.sh close <incantation>`  | Kill the listeners for this channel. Idempotent. |
 
 Wordlist generation and the incantation format are reused from summon (3 words,
@@ -78,10 +79,12 @@ Nothing is ever written to the working directory. The temp dir is OS-reaped.
 
 `open` arms two background processes:
 
-1. **Durable streamer** — `curl -s <base>/<topic>/json` streaming the topic,
+1. **Durable streamer** — `curl -sN <base>/<topic>/json` streaming the topic,
    decrypting each line and appending to `inbox.log`. Never misses a message while
-   the portal is open; auto-reconnects with `?since=` after ntfy drops idle
-   connections.
+   the portal is open; auto-reconnects with `?since=<last_id>` after ntfy drops
+   idle connections. This catch-up relies on ntfy's **default message caching**
+   (~12h) being left **on** — so ciphertext (never plaintext) is briefly retained
+   on the relay; an accepted tradeoff that self-hosting removes.
 2. **Self-re-arming wait listener** — a backgrounded command that blocks until the
    next message arrives, prints it, and **exits**. The harness re-invokes the agent
    when a background command exits, so the moment a peer posts, the agent wakes,
@@ -104,27 +107,36 @@ prefixes so seeing the topic never reveals the key:
   Unguessable; this is the ntfy path.
 - **key** = `SHA-256("key:" + incantation)` → 32-byte AES-256-GCM key.
 
-**Per-message wire format** on ntfy (all base64):
+**Per-message wire format** on ntfy (dot-delimited; ct is base64, iv/mac are hex):
 
 ```
-v1.<nonce_b64>.<ciphertext_b64>.<tag_b64>
+v1.<iv_hex>.<ciphertext_b64>.<mac_hex>
 ```
 
-- `nonce` = 12 random bytes from `/dev/urandom`, fresh per message.
+- Two keys derived from the incantation with distinct prefixes:
+  `enc_key = SHA-256("enc:" + incantation)`, `mac_key = SHA-256("mac:" + incantation)`.
+- `iv` = 16 random bytes (`openssl rand -hex 16`), fresh per message.
 - Plaintext before encryption is a compact JSON object:
   `{"id": <random>, "from": <handle>, "ts": <unix>, "text": <message>}`.
   `id` enables replay/dedup; `from` is the self-asserted sender handle.
-- AES-256-GCM via `openssl`. The GCM **tag** is mandatory: a message from anyone
-  without the key fails the tag and is dropped silently. **No non-AEAD cipher.**
+- **Encrypt-then-MAC:** `ct = AES-256-CBC(enc_key, iv, plaintext)` (base64);
+  `mac = HMAC-SHA256(mac_key, iv_hex || ct_b64)` (hex). A message from anyone
+  without the key fails the MAC and is dropped silently.
+
+**Why CBC+HMAC, not GCM:** the `openssl enc` CLI refuses AEAD ciphers
+("AEAD ciphers not supported") on *both* OpenSSL and LibreSSL, so GCM is not
+reachable with zero-install tooling. Encrypt-then-MAC with CBC + HMAC-SHA256 is an
+equally sound authenticated construction and is verified to round-trip (and reject
+wrong-key / tampered messages) on stock macOS. The base64 alphabet contains no
+dots or quotes, so the dot-delimited wire format and the ntfy-JSON extraction are
+both unambiguous.
+
+Hash output is parsed with `awk '{print $NF}'` to be robust to both the
+`SHA2-256(stdin)= <hex>` (OpenSSL 3) and `(stdin)= <hex>` (LibreSSL) formats.
 
 **Receive path:** streamer reads each ntfy JSON line → extracts the `v1.…` blob →
-GCM-decrypt → on success, dedup by `id`, append to `inbox.log`; on failure (bad
-tag, replay, malformed), drop without surfacing.
-
-**Portability note:** the `openssl` AES-GCM CLI invocation is mildly version-
-sensitive across LibreSSL (stock macOS) and OpenSSL. The plan pins one invocation
-and includes a build-time probe that fails loudly if it doesn't round-trip on
-stock macOS.
+verify MAC, then decrypt → on success, dedup by `id`, append to `inbox.log`; on
+failure (bad MAC, replay, malformed), drop without surfacing.
 
 ## 6. Trust & confirmation doctrine (safety core)
 
@@ -202,6 +214,10 @@ Stated at the top of `SKILL.md` and repeated:
 ## 9. Open questions for the plan
 
 - Final skill name (Portal / Aether / Commune).
-- Exact pinned `openssl` AES-GCM invocation that works on stock macOS.
+- ~~Exact pinned `openssl` invocation~~ — **resolved:** AES-256-CBC + HMAC-SHA256
+  encrypt-then-MAC (GCM unreachable via CLI); verified on stock macOS.
 - Whether incantation generation is factored into a shared helper both `summon`
-  and `portal` call, or duplicated minimally.
+  and `portal` call, or `portal.sh` reads summon's sibling wordlists directly.
+  The plan's working decision: `portal.sh` locates `../summon/wordlist.<lang>.txt`
+  relative to its own dir (both skills ship together in spellbook), with a clear
+  error if absent.
