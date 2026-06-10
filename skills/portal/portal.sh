@@ -30,6 +30,11 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 WORDLIST_DIR="$SCRIPT_DIR/../summon"
 NTFY_BASE="${PORTAL_NTFY_BASE:-https://ntfy.sh}"
 STATE_ROOT="${TMPDIR:-/tmp}"
+# ntfy.sh silently truncates message bodies above ~4000 bytes (still returning HTTP
+# 200), which would corrupt the ciphertext so the receiver drops it — a send that
+# looks successful but never arrives. Reject oversized messages loudly instead. Raise
+# only if you self-host ntfy with a larger message-size-limit.
+PORTAL_MAX_WIRE="${PORTAL_MAX_WIRE:-3900}"
 
 die() { echo "status: error"; echo "error: $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found"; }
@@ -147,6 +152,8 @@ do_send() { # $1=channel(optional topic) $2=text $3=from(optional) $4=to(optiona
     plaintext="$(printf '{"id":"%s","from":"%s","to":"%s","ts":%s,"text":"%s"}' \
         "$mid" "$(json_escape "$from")" "$(json_escape "$to")" "$ts" "$(json_escape "$text")")"
     wire="$(encrypt_with "$ek" "$mk" "$plaintext")"
+    wlen="$(printf '%s' "$wire" | wc -c | tr -d ' ')"
+    [ "$wlen" -le "$PORTAL_MAX_WIRE" ] || die "message too long: ${wlen}-byte wire exceeds PORTAL_MAX_WIRE=$PORTAL_MAX_WIRE. ntfy.sh silently truncates above ~4000 bytes, which would corrupt the ciphertext and the message would vanish on the other end. Shorten the text (or raise PORTAL_MAX_WIRE only if your relay allows larger messages)."
     if [ "${PORTAL_DRYRUN:-0}" = "1" ]; then echo "status: dryrun"; echo "wire: $wire"; return 0; fi
     need curl
     # Record this id as our own send so our streamer skips its ntfy echo (see session_id).

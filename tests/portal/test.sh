@@ -87,6 +87,12 @@ case "$(sh "$P" _decrypt kettu-lokaali-piano "$WIRE_NOTO")" in
     *) no "send without --to leaves an empty directed-at field" ;;
 esac
 
+# oversized message is rejected loudly (ntfy.sh silently truncates >~4000 bytes)
+BIG="$(head -c 5000 /dev/zero | tr '\0' x)"
+if PORTAL_DRYRUN=1 sh "$P" send "$BIG" --from peter >/dev/null 2>&1; then no "oversized message is rejected"; else ok "oversized message is rejected"; fi
+# a comfortably-sized message is still accepted
+if PORTAL_DRYRUN=1 sh "$P" send "a normal sentence" --from peter >/dev/null 2>&1; then ok "normal-size message is accepted"; else no "normal-size message is accepted"; fi
+
 # --- Task 5: live loopback + own-echo skip (only with PORTAL_TEST_NET=1) ---
 if [ "${PORTAL_TEST_NET:-0}" = "1" ]; then
     LINC="loopback-$(openssl rand -hex 4 | sed 's/\(..\)\(..\)\(..\)\(..\)/\1-\2-\3/')"
