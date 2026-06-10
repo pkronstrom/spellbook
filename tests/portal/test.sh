@@ -30,6 +30,13 @@ eq "topic derivation"   "$(sh "$P" _topic  kettu-lokaali-piano)" "portal-3726580
 eq "enc key derivation" "$(sh "$P" _enckey kettu-lokaali-piano)" "3f8c9b86950f696d9dc457b4167dd8bbfd528a06c9e3a6d1145427372da9972a"
 eq "mac key derivation" "$(sh "$P" _mackey kettu-lokaali-piano)" "6ddac5c69f2a7f36984f770e8b25f6b3580fd42e2f623f8b6fed466867178c6f"
 
+# --- Task 2b: incantation normalization (spaces/case/hyphens -> one channel) ---
+CANON="$(sh "$P" _topic 'banaani-polku-gorilla')"
+eq "spaces normalize to the same topic"  "$(sh "$P" _topic 'banaani polku gorilla')"   "$CANON"
+eq "mixed case normalizes to the same topic" "$(sh "$P" _topic 'Banaani-Polku-Gorilla')" "$CANON"
+eq "padded/underscored normalizes too"   "$(sh "$P" _topic '  banaani_polku_gorilla ')" "$CANON"
+eq "normalized keys match too" "$(sh "$P" _enckey 'banaani polku gorilla')" "$(sh "$P" _enckey 'banaani-polku-gorilla')"
+
 # --- Task 3: crypto round-trip + rejection ---
 PLAIN='{"id":"abc","from":"peter","ts":1,"text":"hei Esko"}'
 WIRE="$(sh "$P" _encrypt kettu-lokaali-piano "$PLAIN")"

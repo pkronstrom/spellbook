@@ -34,9 +34,16 @@ die() { echo "status: error"; echo "error: $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found"; }
 
 sha256_hex() { openssl dgst -sha256 | awk '{print $NF}'; }
-topic_for()   { h="$(printf 'topic:%s' "$1" | sha256_hex)"; printf 'portal-%s' "$(printf '%s' "$h" | cut -c1-16)"; }
-enc_key_for() { printf 'enc:%s' "$1" | sha256_hex; }
-mac_key_for() { printf 'mac:%s' "$1" | sha256_hex; }
+# Accept the incantation however it was spoken/typed — spaces or hyphens, any case
+# ("banaani polku gorilla" == "Banaani-Polku-Gorilla") — and fold it to the canonical
+# lowercase word-word-word form before deriving anything. WITHOUT this, the same words
+# said two ways hash to two different channels. (Same normalization as the summon skill.)
+normalize_incantation() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s ' ._-' '-' | sed -e 's/^-*//' -e 's/-*$//'
+}
+topic_for()   { i="$(normalize_incantation "$1")"; h="$(printf 'topic:%s' "$i" | sha256_hex)"; printf 'portal-%s' "$(printf '%s' "$h" | cut -c1-16)"; }
+enc_key_for() { printf 'enc:%s' "$(normalize_incantation "$1")" | sha256_hex; }
+mac_key_for() { printf 'mac:%s' "$(normalize_incantation "$1")" | sha256_hex; }
 dir_for()       { printf '%s/portal.%s' "$STATE_ROOT" "$(topic_for "$1")"; }
 dir_for_topic() { printf '%s/portal.%s' "$STATE_ROOT" "$1"; }
 ACTIVE_FILE="$STATE_ROOT/portal.active"
