@@ -87,26 +87,34 @@ case "$(sh "$P" _decrypt kettu-lokaali-piano "$WIRE_NOTO")" in
     *) no "send without --to leaves an empty directed-at field" ;;
 esac
 
-# --- Task 5: live loopback through ntfy (only with PORTAL_TEST_NET=1) ---
+# --- Task 5: live loopback + own-echo skip (only with PORTAL_TEST_NET=1) ---
 if [ "${PORTAL_TEST_NET:-0}" = "1" ]; then
     LINC="loopback-$(openssl rand -hex 4 | sed 's/\(..\)\(..\)\(..\)\(..\)/\1-\2-\3/')"
-    sh "$P" open "$LINC" >/dev/null 2>&1 &
+    LTOPIC="$(sh "$P" _topic "$LINC")"; LDIR="$TMPDIR/portal.$LTOPIC"
+    SID_ME="sid-me-$$"; SID_OTHER="sid-other-$$"
+    # streamer runs as session SID_ME
+    CLAUDE_CODE_SESSION_ID="$SID_ME" sh "$P" open "$LINC" >/dev/null 2>&1 &
     OPID=$!
     sleep 3
-    # tricky text: contains a quote and a brace to exercise the inbox extractor;
-    # also directed --to esko, so the inbox line must carry both the to-hint and text
-    # open set the active channel; send/read need no incantation
-    sh "$P" send 'reply {ok} say "hi"' --from tester --to esko >/dev/null
+    # a message from ANOTHER session (tricky text exercises the inbox extractor; --to esko the hint)
+    CLAUDE_CODE_SESSION_ID="$SID_OTHER" sh "$P" send 'reply {ok} say "hi"' --from tester --to esko >/dev/null
+    # our OWN send (same session as the streamer) must NOT echo into our inbox
+    CLAUDE_CODE_SESSION_ID="$SID_ME" sh "$P" send 'this is my own echo' --from me >/dev/null
     got=""
     i=0
-    while [ "$i" -lt 10 ]; do
-        line="$(sh "$P" read 2>/dev/null || true)"
-        case "$line" in *"	esko	"*'reply {ok} say "hi"'*) got="yes"; break ;; esac
+    while [ "$i" -lt 12 ]; do
+        if grep -q 'reply {ok} say "hi"' "$LDIR/inbox.log" 2>/dev/null; then got="yes"; break; fi
         i=$((i+1)); sleep 1
     done
-    sh "$P" close >/dev/null 2>&1 || true
+    sleep 2  # give the own-echo every chance to (wrongly) show up
+    if grep -q 'this is my own echo' "$LDIR/inbox.log" 2>/dev/null; then ownecho="yes"; else ownecho="no"; fi
+    # foreign line should still carry the --to esko hint in its 'to' column
+    if grep -q "	esko	" "$LDIR/inbox.log" 2>/dev/null; then tohint="yes"; else tohint="no"; fi
+    CLAUDE_CODE_SESSION_ID="$SID_ME" sh "$P" close >/dev/null 2>&1 || true
     kill "$OPID" 2>/dev/null || true
-    eq "loopback message arrives decrypted in inbox" "$got" "yes"
+    eq "foreign message arrives decrypted in inbox" "$got" "yes"
+    eq "directed --to hint lands in the inbox line" "$tohint" "yes"
+    eq "own send is NOT echoed back into our inbox" "$ownecho" "no"
 else
     ok "skipped network loopback (set PORTAL_TEST_NET=1 to run it)"
 fi

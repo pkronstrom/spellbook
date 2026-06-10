@@ -76,6 +76,12 @@ load_keys() { # $1=channel dir -> sets ek, mk
     mk="$(awk '$1=="mac"{print $2}' "$1/keys")"
 }
 
+# A stable id for THIS Claude session, so a session skips only the echoes of its own
+# sends — not messages from another session sharing the same channel dir on this
+# machine. ntfy delivers your own published message back to you; without this, every
+# send would bounce into your own inbox. Per-session (not per-channel) on purpose.
+session_id() { printf '%s' "${CLAUDE_CODE_SESSION_ID:-default}" | tr -c 'a-zA-Z0-9-' '_'; }
+
 pick_word() { r="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"; sed -n "$(( (r % $1) + 1 ))p" "$2"; }
 gen_incantation() {
     wl="$1"
@@ -126,6 +132,8 @@ do_send() { # $1=channel(optional topic) $2=text $3=from(optional) $4=to(optiona
     wire="$(encrypt_with "$ek" "$mk" "$plaintext")"
     if [ "${PORTAL_DRYRUN:-0}" = "1" ]; then echo "status: dryrun"; echo "wire: $wire"; return 0; fi
     need curl
+    # Record this id as our own send so our streamer skips its ntfy echo (see session_id).
+    printf '%s\n' "$mid" >> "$d/sent.$(session_id).ids"
     code="$(printf '%s' "$wire" | curl -s --data-binary @- "$NTFY_BASE/$topic" -o /dev/null -w '%{http_code}')"
     [ "$code" = "200" ] || die "publish failed (http $code)"
     echo "status: sent"
@@ -142,8 +150,8 @@ msg_text() { sed -n 's/.*"text":"\(.*\)"}$/\1/p' | json_unescape; }
 do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in background
     need openssl; need curl
     inc="$1"; topic="$(bind_channel "$inc")"; d="$(dir_for_topic "$topic")"
-    inbox="$d/inbox.log"; seen="$d/seen.ids"
-    : >> "$inbox"; : >> "$seen"; echo "$$" > "$d/listener.pid"
+    inbox="$d/inbox.log"; seen="$d/seen.ids"; ownsent="$d/sent.$(session_id).ids"
+    : >> "$inbox"; : >> "$seen"; : >> "$ownsent"; echo "$$" > "$d/listener.pid"
     { echo "status: open"; echo "topic: $topic"; echo "inbox: $inbox"; } >&2
     while :; do
         url="$NTFY_BASE/$topic/json"
@@ -157,6 +165,8 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
             [ -n "$blob" ] || continue
             pt="$(decrypt_msg "$inc" "$blob")" || continue
             mid="$(printf '%s' "$pt" | json_field id)"
+            # skip our own echo (we published it), then dedup repeats
+            [ -n "$mid" ] && grep -qxF "$mid" "$ownsent" 2>/dev/null && continue
             [ -n "$mid" ] && grep -qxF "$mid" "$seen" 2>/dev/null && continue
             [ -n "$mid" ] && printf '%s\n' "$mid" >> "$seen"
             from="$(printf '%s' "$pt" | json_field from)"
