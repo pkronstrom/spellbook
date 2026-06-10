@@ -6,26 +6,20 @@ so new skills can be added in parallel without coupling.
 ## Skills
 
 ### ✨ Summon
-Securely teleport a **file**, **folder**, a whole **Claude skill**, or a chunk of
-**text/context** to a teammate's Claude. End-to-end encrypted via
-[croc](https://github.com/schollz/croc); each transfer is unlocked by a short
-spoken **incantation** — three easy words like `brim-gloss-kite`, made to be said
-out loud.
+Securely send a **file**, **folder**, or any **content** to a teammate's Claude.
+End-to-end encrypted via [croc](https://github.com/schollz/croc); each transfer is
+unlocked by a short spoken **incantation** — three easy words like `brim-gloss-kite`,
+made to be said out loud.
 
-- **Send:** ask Claude *"send this file to a teammate"* / *"share this skill"*. Claude
-  binds it and copies a one-line incantation to your clipboard — pass it to your
-  teammate over Slack/voice.
-- **Receive:** ask Claude *"summon `<incantation>`"*. It fetches into a quarantine,
-  shows you what arrived (origin is *not* cryptographically proven), and only
-  writes to disk after you confirm.
+- **Send:** ask Claude *"send this file to a teammate"* / *"share this with the team"*.
+  Claude serves it and copies a one-line incantation to your clipboard — pass it to
+  your teammate over Slack/voice.
+- **Receive:** ask Claude *"summon `<incantation>`"*. It downloads into a temp dir,
+  shows you what arrived (origin is *not* cryptographically proven), and — once you
+  confirm — places it where you want.
 
 Requires `croc` (`brew install croc`) on both ends. A teammate without the skill can
 still receive with `brew install croc && croc <incantation>`.
-
-**Optional hardening:** set a shared `SUMMON_SALT` env var (same value for you and a
-teammate) and it's mixed into every incantation automatically. You still speak only
-the 3 words, but someone who overhears them can't receive without also knowing the
-salt. Leave it unset for zero-setup use.
 
 ## Install
 
@@ -70,11 +64,12 @@ spellbook/
 
 ## Design
 
-Summon deliberately leans on `croc` for code generation, encryption, NAT
-traversal, folder packaging, and integrity. `summon.sh` only adds ergonomics:
-backgrounded send + code capture, a clipboard share line, and a
-quarantine → review → safe-place receive flow. Runtime dependencies are just
-**croc** and **sh** — nothing else.
+Summon deliberately leans on `croc` for everything croc already does — encryption,
+NAT traversal, folder packaging, integrity. `summon.sh` (~100 lines) only adds
+ergonomics: a spoken 3-word incantation, a clipboard share line, and a `receive`
+that stages the download into a temp dir and hands the path back to Claude, which
+places the files wherever you want. It never writes to your working directory and
+never deletes anything. Runtime dependencies are just **croc** and **sh**.
 
 ## Credits
 

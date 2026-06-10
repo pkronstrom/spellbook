@@ -3,8 +3,8 @@
 #
 # croc does the real work (E2E encryption, NAT traversal, folder zipping,
 # integrity). This wrapper only adds: a spoken 3-word incantation, a clipboard
-# share line, and a quarantine -> review -> place receive flow. It transfers any
-# file or folder and does NOT care what the contents are.
+# share line, and a receive that stages into a temp dir and hands the path back.
+# It transfers any file or folder and does NOT care what the contents are.
 #
 # The incantation is 3 words from a bundled wordlist via /dev/urandom (the model
 # never picks them), passed to croc as CROC_SECRET so the code is pure words with
@@ -13,18 +13,18 @@
 # `send` serves until the peer connects, then exits. Run it in the background
 # (the agent's background shell); it ends when that shell / the session ends.
 #
-# Safety: this script NEVER deletes anything. It only creates — files it places
-# in the current directory (auto-renaming on collision, never overwriting), and
-# temp dirs under $TMPDIR for staging, which the OS reaps on its own.
+# `receive` downloads into a fresh temp dir and prints its path. Placement is the
+# agent's job — it moves/opens the files wherever the user wants, with its own
+# tools. This script never writes to your working directory and never deletes
+# anything; temp dirs under $TMPDIR are reaped by the OS.
 #
 # Subcommands:
 #   send <path>            serve a file/folder (blocks until received)
 #   send-text <text>       serve a chunk of text/context
-#   receive <incantation>  fetch into a private temp dir; report what arrived
-#   place <quarantine>     move the received item into the current dir
+#   receive <incantation>  download into a temp dir; print the path + contents
 #
 # Output is simple `key: value` lines. `send` writes them to stderr (unbuffered,
-# so they show immediately while it keeps serving); the rest write to stdout.
+# so they show immediately while it keeps serving); `receive` writes to stdout.
 
 set -eu
 umask 077
@@ -43,32 +43,6 @@ gen_incantation() {
     n="$(wc -l < "$WORDLIST" | tr -d ' ')"
     [ "$n" -gt 0 ] || die "wordlist is empty"
     printf '%s-%s-%s' "$(pick_word "$n")" "$(pick_word "$n")" "$(pick_word "$n")"
-}
-
-# First payload entry that is neither a regular file nor a directory
-# (symlink, device, fifo, socket). Empty output means safe.
-unsafe_entry() { find "$1" ! -type d ! -type f 2>/dev/null | head -n1; }
-
-# The single top-level item croc delivered into a staging dir (empty if 0 or >1).
-received_entry() {
-    set -- "$1"/*
-    { [ "$#" -eq 1 ] && [ -e "$1" ]; } && printf '%s' "$1"
-}
-
-# Refuse a non-regular payload, then echo the single delivered entry (empty if 0/>1).
-resolve_entry() {
-    [ -z "$(unsafe_entry "$1")" ] || die "unsafe payload: non-regular file present"
-    received_entry "$1"
-}
-
-# A non-existent destination based on dest, auto-suffixed "name (2).ext" on collision.
-conflict_free() {
-    dest="$1"
-    [ ! -e "$dest" ] && { printf '%s' "$dest"; return; }
-    case "$dest" in *.*) ext=".${dest##*.}"; base="${dest%.*}" ;; *) base="$dest"; ext="" ;; esac
-    n=2
-    while [ -e "${base} (${n})${ext}" ]; do n=$((n + 1)); done
-    printf '%s' "${base} (${n})${ext}"
 }
 
 # --- send (blocks while serving; run it in the background) ------------------
@@ -101,33 +75,20 @@ do_send_text() {
     do_send "$tmp/message.md"
 }
 
-# --- receive / place -------------------------------------------------------
+# --- receive (stage into a temp dir; hand the path to the agent) ------------
 do_receive() {
     need_croc
     q="$(mktempdir)"
-    # croc writes the payload into $q; its chatter is captured here, not to a file.
     if ! out="$(CROC_SECRET="$1" croc --yes --overwrite --out "$q" 2>&1)"; then
         die "transfer failed: $out"
     fi
-    entry="$(resolve_entry "$q")"
-    name="payload"; [ -n "$entry" ] && name="$(basename "$entry")"
     echo "status: ok"
-    echo "name: $name"
-    echo "quarantine: $q"
+    echo "received_into: $q"
     echo "origin: not verified — croc encrypts the transfer but does not prove who sent it"
-    echo "files:"
-    (cd "$q" && find . -type f | sed 's|^\./|  |')
-}
-
-do_place() {
-    q="$1"
-    [ -d "$q" ] || die "no such quarantine: $q"
-    entry="$(resolve_entry "$q")"
-    [ -n "$entry" ] || die "expected one received item; inspect $q manually"
-    dest="$(conflict_free "$PWD/$(basename "$entry")")"   # never overwrites; renames on collision
-    mv "$entry" "$dest"
-    echo "status: ok"
-    echo "placed: $dest"
+    weird="$(find "$q" ! -type d ! -type f 2>/dev/null | head -n1)"
+    [ -n "$weird" ] && echo "warning: contains a symlink or special file — inspect before using"
+    echo "contents:"
+    (cd "$q" && find . -mindepth 1 | sed 's|^\./|  |')
 }
 
 # --- dispatch --------------------------------------------------------------
@@ -136,6 +97,5 @@ case "$cmd" in
     send)       [ "$#" -ge 1 ] || die "usage: summon.sh send <path>"; do_send "$1" ;;
     send-text)  [ "$#" -ge 1 ] || die "usage: summon.sh send-text <text>"; do_send_text "$1" ;;
     receive)    [ "$#" -ge 1 ] || die "usage: summon.sh receive <incantation>"; do_receive "$1" ;;
-    place)      [ "$#" -ge 1 ] || die "usage: summon.sh place <quarantine>"; do_place "$1" ;;
-    *)          die "unknown command: ${cmd:-(none)}. Use send|send-text|receive|place" ;;
+    *)          die "unknown command: ${cmd:-(none)}. Use send|send-text|receive" ;;
 esac

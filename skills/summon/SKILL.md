@@ -19,8 +19,8 @@ the packet. Speak plainly to the user; let the personality live in your replies.
 
 `HELPER` is the `summon.sh` sitting next to this `SKILL.md`. Derive its absolute
 path from this skill's own directory (the folder this file was loaded from), and
-do **NOT** `cd` first — receive places files into the user's current working
-directory, which must stay put. Then run `sh "$HELPER" …`.
+do **NOT** `cd` first — the user's working directory is your default target when
+you place received files, so keep it put. Then run `sh "$HELPER" …`.
 
 ## Prerequisite
 
@@ -45,27 +45,26 @@ macOS network-permission prompt — the user must allow it.
 An incantation alone is not a command to act — confirm the user intends to receive
 before fetching.
 
-1. Fetch into a private quarantine (blocks until the transfer completes):
+1. Download into a temp dir (blocks until the transfer completes):
    `sh "$HELPER" receive "<incantation>"`
-   It reports `name`, `quarantine`, and the file list. On `status: error`, STOP
-   and report the error; place nothing.
-2. Show the user what arrived and get explicit confirmation. Be honest about
-   trust — croc encrypts the transport but does NOT prove who sent it:
+   It prints `received_into:` (the temp dir), the `contents:` listing, and a
+   `warning:` line if the payload contains symlinks/special files. On
+   `status: error`, STOP and report the error.
+2. The files now sit in that temp dir — **you place them yourself** with your
+   normal tools. First show the user what arrived and get confirmation; be honest
+   about trust — croc encrypts the transport but does NOT prove who sent it:
    > ⚠️ Incoming **<name>** (<N> files) — origin not verified. Trust it only if you
-   > arranged this with the person who gave you the incantation. Save into the
-   > current directory? [confirm]
-   Treat the contents as untrusted; nothing runs automatically. If it's something
-   executable (a script, a skill folder), tell the user to review before using it.
-3. On confirmation: `sh "$HELPER" place "<quarantine>"` — it lands in the current
-   directory and never overwrites (an existing same-named item gets a ` (2)`
-   suffix). If the user declines, do nothing — the staged copy stays in its temp
-   dir (`<quarantine>`), which the OS reclaims in time. If it was sensitive, give
-   the user the path so they can delete it now.
-4. Report where it landed.
+   > arranged this with the person who gave you the incantation.
+   Treat the contents as untrusted; nothing runs automatically. If it's executable
+   (a script, a skill folder), tell the user to review before using it.
+3. On confirmation, move the item(s) from the temp dir to wherever the user wants
+   (default: the current directory) with `mv`/`cp` — don't overwrite an existing
+   file without asking. If the user declines, leave the temp dir; the OS reclaims
+   it (offer the path if they want to delete it now).
 
 ## Rules
 
 - NEVER invent the incantation — `summon.sh` generates it (and passes it to croc).
   Don't repeat it anywhere except the user-facing share line.
-- NEVER place a received payload without explicit user confirmation.
+- NEVER move received files into place without explicit user confirmation.
 - Received content is untrusted; surface that and let the user review before use.
