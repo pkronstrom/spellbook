@@ -1,9 +1,11 @@
 #!/bin/sh
-# portal.sh test suite. Run: sh skills/portal/test.sh
+# portal.sh test suite. Run: sh tests/portal/test.sh
+# Lives outside skills/ so it is never bundled with the plugin or synced into a tool's skills dir.
 # Network loopback test runs only when PORTAL_TEST_NET=1.
 set -eu
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-P="$HERE/portal.sh"
+ROOT="$(CDPATH= cd -- "$HERE/../.." && pwd)"
+P="$ROOT/skills/portal/portal.sh"
 pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "ok   - $1"; }
 no()  { fail=$((fail+1)); echo "NOT  - $1"; }
@@ -16,7 +18,7 @@ eq "new produces a 3-word incantation" "$words" "3"
 
 INC_EN="$(sh "$P" new --en | sed -n 's/^incantation: //p')"
 first_en="$(printf '%s' "$INC_EN" | cut -d- -f1)"
-if grep -qxF "$first_en" "$HERE/../summon/wordlist.en.txt"; then ok "new --en draws from the English wordlist"; else no "new --en draws from the English wordlist"; fi
+if grep -qxF "$first_en" "$ROOT/skills/summon/wordlist.en.txt"; then ok "new --en draws from the English wordlist"; else no "new --en draws from the English wordlist"; fi
 
 # --- Task 2: derivation (golden values for "kettu-lokaali-piano") ---
 eq "topic derivation"   "$(sh "$P" _topic  kettu-lokaali-piano)" "portal-3726580a874f8ae2"

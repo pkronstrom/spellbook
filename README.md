@@ -80,7 +80,9 @@ spellbook/
     portal/
       SKILL.md         # trust doctrine + how Claude drives the portal
       portal.sh        # thin POSIX-sh wrapper: ntfy + openssl chat
-      test.sh          # shell test suite
+  tests/
+    portal/
+      test.sh          # shell test suite (outside skills/ — never bundled/synced)
 ```
 
 ## Design
