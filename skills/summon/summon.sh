@@ -8,7 +8,9 @@
 #
 # The incantation is 3 words from a bundled wordlist via /dev/urandom (the model
 # never picks them), passed to croc as CROC_SECRET so the code is pure words with
-# no number.
+# no number. Two wordlists ship: Finnish (default, easy for Finnish colleagues
+# over voice) and English; `receive` normalizes whatever words it is handed, so
+# the language flag only matters when sending.
 #
 # `send` serves until the peer connects, then exits. Run it in the background
 # (the agent's background shell); it ends when that shell / the session ends.
@@ -18,9 +20,9 @@
 # tools. This script never writes to your working directory and never deletes
 # anything; temp dirs under $TMPDIR are reaped by the OS.
 #
-# Subcommands:
-#   send <path>            serve a file/folder (blocks until received)
-#   send-text <text>       serve a chunk of text/context
+# Subcommands (an optional --fi/--en/--lang flag may precede send args):
+#   send [--en] <path>     serve a file/folder (blocks until received)
+#   send-text [--en] <text> serve a chunk of text/context
 #   receive <incantation>  download into a temp dir; print the path + contents
 #
 # Output is simple `key: value` lines. `send` writes them to stderr (unbuffered,
@@ -30,13 +32,19 @@ set -eu
 umask 077
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-WORDLIST="$SCRIPT_DIR/wordlist.txt"
+# WORDLIST is chosen per language by the dispatcher (wordlist.fi.txt / wordlist.en.txt).
 
 die() { echo "status: error"; echo "error: $*"; exit 1; }
 need_croc() { command -v croc >/dev/null 2>&1 || die "croc not found. Install with: brew install croc"; }
 mktempdir() { mktemp -d "${TMPDIR:-/tmp}/summon.XXXXXX"; }
 
 pick_word() { r="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"; sed -n "$(( (r % $1) + 1 ))p" "$WORDLIST"; }
+
+# Accept the incantation however it was spoken/typed — spaces, hyphens, mixed
+# case — and fold it back to the lowercase `word-word-word` form croc expects.
+normalize_incantation() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s ' ._-' '-' | sed -e 's/^-*//' -e 's/-*$//'
+}
 
 gen_incantation() {
     [ -f "$WORDLIST" ] || die "wordlist missing: $WORDLIST"
@@ -79,7 +87,9 @@ do_send_text() {
 do_receive() {
     need_croc
     q="$(mktempdir)"
-    if ! out="$(CROC_SECRET="$1" croc --yes --overwrite --out "$q" 2>&1)"; then
+    code="$(normalize_incantation "$1")"
+    [ -n "$code" ] || die "empty incantation"
+    if ! out="$(CROC_SECRET="$code" croc --yes --overwrite --out "$q" 2>&1)"; then
         die "transfer failed: $out"
     fi
     echo "status: ok"
@@ -93,6 +103,22 @@ do_receive() {
 
 # --- dispatch --------------------------------------------------------------
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift || true
+
+# Optional language flag picks the wordlist for the incantation (send only;
+# receive normalizes whatever words it is handed). Finnish is the default.
+lang=fi
+case "${1:-}" in
+    --lang)   shift; lang="${1:-fi}"; [ "$#" -gt 0 ] && shift || true ;;
+    --lang=*) lang="${1#--lang=}"; shift ;;
+    --fi)     lang=fi; shift ;;
+    --en)     lang=en; shift ;;
+esac
+case "$lang" in
+    fi) WORDLIST="$SCRIPT_DIR/wordlist.fi.txt" ;;
+    en) WORDLIST="$SCRIPT_DIR/wordlist.en.txt" ;;
+    *)  die "unknown language: $lang (use fi or en)" ;;
+esac
+
 case "$cmd" in
     send)       [ "$#" -ge 1 ] || die "usage: summon.sh send <path>"; do_send "$1" ;;
     send-text)  [ "$#" -ge 1 ] || die "usage: summon.sh send-text <text>"; do_send_text "$1" ;;

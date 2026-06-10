@@ -11,9 +11,10 @@ description: >-
 # Summon
 
 Send any file or folder to a teammate's Claude over `croc`. Sending **binds** the
-content to an **incantation** — three spoken-clean words like `brim-gloss-kite`;
-receiving **summons** it. Summon doesn't care what the content is; it just moves
-the packet. Speak plainly to the user; let the personality live in your replies.
+content to an **incantation** — three spoken-clean words like `kettu-banaani-sipuli`
+(Finnish by default, or English `brim-gloss-kite`); receiving **summons** it.
+Summon doesn't care what the content is; it just moves the packet. Speak plainly
+to the user; let the personality live in your replies.
 
 ## Running the helper
 
@@ -32,6 +33,10 @@ macOS network-permission prompt — the user must allow it.
 1. Run the send **in the background** (it blocks while serving):
    - a file/folder: `sh "$HELPER" send "<path>"`   ← run with run_in_background
    - text/context:  `sh "$HELPER" send-text "<content>"`   ← run with run_in_background
+   The incantation defaults to **Finnish** (easiest for Finnish colleagues to say
+   over voice chat). For an English incantation, add `--en` right after the
+   subcommand: `sh "$HELPER" send --en "<path>"`. Pick the language to match
+   whoever will be summoning it.
 2. Read the background output for the `incantation` and `share_line` (the share
    line is also copied to the clipboard). Relay it in-theme, e.g.:
    > ✨ Bound and ready. Incantation: `brim-gloss-kite`
@@ -47,6 +52,9 @@ before fetching.
 
 1. Download into a temp dir (blocks until the transfer completes):
    `sh "$HELPER" receive "<incantation>"`
+   Pass the incantation however your teammate said it — spaces or hyphens, any
+   case (`kettu banaani sipuli` or `Kettu-Banaani-Sipuli`); the helper normalizes
+   it to `kettu-banaani-sipuli` before fetching.
    It prints `received_into:` (the temp dir), the `contents:` listing, and a
    `warning:` line if the payload contains symlinks/special files. On
    `status: error`, STOP and report the error.
