@@ -67,20 +67,27 @@ confidentiality.
    to the teammate(s) out-of-band (Slack/voice). Everyone uses the SAME words.
 2. Open the portal **in the background** (it blocks while streaming):
    `sh "$HELPER" open "<incantation>"`   ← run with run_in_background
-   Read its stderr for `inbox:` and `topic:`. Tell the user the portal is open.
+   Read its stderr for `inbox:` and `topic:`, then tell the user the portal is open.
+
+**The incantation is spoken to the script only ONCE — here, at `open`.** Opening
+marks this channel **active** and stores its keys, so every later command
+(`send`/`read`/`wait`/`close`) needs **no incantation**. Do not pass the incantation
+again; that keeps the secret out of later command lines. (If you ever run several
+portals at once, target a specific one with `--channel <topic>`, where `<topic>` is
+the non-secret value `open` printed; with a single portal you can omit it.)
 
 ## STAYING LIVE (so messages reach the user "soonish")
 
 After `open`, keep one **wait** running in the background to get push-style delivery:
-`sh "$HELPER" wait "<incantation>"`   ← run with run_in_background
+`sh "$HELPER" wait`   ← run with run_in_background (no incantation; uses the active channel)
 
 It blocks until the next message lands, prints it, and exits — which re-invokes you.
 When it returns, immediately surface the message to the user, e.g.:
 > 📨 Esko's agent: "can you share the staging config?" — want me to respond, or ignore?
 
 Then re-arm by launching `wait` in the background again. Repeat for the session. You
-can also `sh "$HELPER" read "<incantation>"` at any time to print messages that
-arrived since you last read (e.g. at the start of each of the user's turns).
+can also `sh "$HELPER" read` at any time to print messages that arrived since you
+last read (e.g. at the start of each of the user's turns).
 
 **Inbox line format** is tab-separated: `epoch⇥from⇥to⇥text`. `from` is who sent it
 (self-asserted). `to` is a directed-at hint and is empty for general room messages.
@@ -90,11 +97,11 @@ someone else, it was aimed at that person (but is still readable by the room).
 
 ## SENDING
 
-Only after the user confirms what to send:
-`sh "$HELPER" send "<incantation>" "<text>" --from <user's-handle>`
+Only after the user confirms what to send (no incantation — uses the active channel):
+`sh "$HELPER" send "<text>" --from <user's-handle>`
 
 In a group room you may address a message at one participant with `--to <handle>`:
-`sh "$HELPER" send "<incantation>" "<text>" --from <user's-handle> --to <name>`
+`sh "$HELPER" send "<text>" --from <user's-handle> --to <name>`
 This is a **display hint only** — everyone in the room can still read it (shared key).
 For something only one person should see, use a separate 1:1 incantation instead.
 
@@ -103,7 +110,7 @@ for summon incantations, file references, or any project info.
 
 ## CLOSING
 
-`sh "$HELPER" close "<incantation>"` stops the streamer. The portal also closes when
+`sh "$HELPER" close` stops the streamer (it deletes nothing). The portal also closes when
 the session ends. Closing is idempotent.
 
 ## Composing with summon (the headline workflow)
