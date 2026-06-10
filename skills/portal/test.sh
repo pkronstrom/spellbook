@@ -53,12 +53,13 @@ if [ "${PORTAL_TEST_NET:-0}" = "1" ]; then
     sh "$P" open "$LINC" >/dev/null 2>&1 &
     OPID=$!
     sleep 3
-    sh "$P" send "$LINC" "loopback ping" --from tester >/dev/null
+    # tricky text: contains a quote and a brace to exercise the inbox extractor
+    sh "$P" send "$LINC" 'reply {ok} say "hi"' --from tester >/dev/null
     got=""
     i=0
     while [ "$i" -lt 10 ]; do
         line="$(sh "$P" read "$LINC" 2>/dev/null || true)"
-        case "$line" in *"loopback ping"*) got="yes"; break ;; esac
+        case "$line" in *'reply {ok} say "hi"'*) got="yes"; break ;; esac
         i=$((i+1)); sleep 1
     done
     sh "$P" close "$LINC" >/dev/null 2>&1 || true
@@ -81,6 +82,12 @@ eq "read returns only the new line" "$(sh "$P" read "$FINC")" "$(printf '1700000
 eq "wait blocks then returns the appended line" "$(sh "$P" wait "$FINC")" "$(printf '1700000002\tesko\tthird')"
 sh "$P" close "$FINC" >/dev/null 2>&1; ok "close exits cleanly (idempotent)"
 rm -rf "$FDIR"
+
+# --- Task 6b: inbox text extraction survives quotes and braces (offline) ---
+PT='{"id":"x","from":"a","ts":1,"text":"reply {ok} say \"hi\""}'
+eq "msg_text extracts text with quotes and braces" "$(sh "$P" _msgtext "$PT")" 'reply {ok} say "hi"'
+PT2='{"id":"y","from":"b","ts":2,"text":"trailing brace}"}'
+eq "msg_text handles text ending in a brace" "$(sh "$P" _msgtext "$PT2")" 'trailing brace}'
 
 echo "---"
 echo "PASS=$pass FAIL=$fail"

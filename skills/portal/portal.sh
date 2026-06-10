@@ -41,6 +41,11 @@ gen_incantation() {
 
 b64()   { openssl base64 -A; }
 unb64() { openssl base64 -d -A; }
+# NOTE: the key is the 64-char ASCII hex digest used verbatim as the HMAC string
+# key (64 bytes = HMAC-SHA256's block size, carrying the full 256 bits of entropy).
+# This is intentional and portable across OpenSSL/LibreSSL. Do NOT "improve" it to
+# `-macopt hexkey:` — that interprets the key as raw bytes and changes every MAC,
+# breaking the v1 wire format and the golden test values.
 hmac_hex() { openssl dgst -sha256 -hmac "$1" | awk '{print $NF}'; }
 
 encrypt_msg() { # $1=incantation $2=plaintext -> v1.<iv_hex>.<ct_b64>.<mac_hex>
@@ -79,6 +84,10 @@ do_send() { # $1=incantation $2=text $3=from(optional)
 
 json_field() { sed -n "s/.*\"$1\":\"\\([^\"]*\\)\".*/\\1/p"; }
 json_unescape() { sed -e 's/\\"/"/g' -e 's/\\\\/\\/g'; }
+# Extract the trailing "text" field from one of our plaintext JSON lines (stdin).
+# text is always the last field, so the greedy capture anchored on the final "}
+# is exact even when the text itself contains } or (escaped) quotes.
+msg_text() { sed -n 's/.*"text":"\(.*\)"}$/\1/p' | json_unescape; }
 
 do_open() { # $1=incantation — BLOCKS streaming; run in background
     need openssl; need curl
@@ -101,7 +110,7 @@ do_open() { # $1=incantation — BLOCKS streaming; run in background
             [ -n "$mid" ] && grep -qxF "$mid" "$seen" 2>/dev/null && continue
             [ -n "$mid" ] && printf '%s\n' "$mid" >> "$seen"
             from="$(printf '%s' "$pt" | json_field from)"
-            txt="$(printf '%s' "$pt" | sed -n 's/.*"text":"\(.*\)"}$/\1/p' | json_unescape)"
+            txt="$(printf '%s' "$pt" | msg_text)"
             printf '%s\t%s\t%s\n' "$(date +%s)" "$from" "$txt" >> "$inbox"
         done
         sleep 2
@@ -113,6 +122,9 @@ do_read() { # $1=incantation — print inbox lines new since last read
     [ -f "$inbox" ] || die "no portal inbox for that incantation (is it open?)"
     off="$d/read.offset"; n="$(cat "$off" 2>/dev/null || echo 0)"
     total="$(wc -l < "$inbox" | tr -d ' ')"
+    # If the inbox was recreated/truncated (e.g. TMPDIR reaped, channel reopened),
+    # a stale offset could exceed the line count and silently hide everything.
+    [ "$n" -gt "$total" ] && n=0
     [ "$total" -gt "$n" ] && sed -n "$((n+1)),\$p" "$inbox"
     printf '%s' "$total" > "$off"
 }
@@ -129,9 +141,15 @@ do_wait() { # $1=incantation — block until a new inbox line appears, print it,
 }
 
 do_close() { # $1=incantation — stop the background streamer
-    inc="$1"; d="$(dir_for "$inc")"
+    need openssl
+    inc="$1"; d="$(dir_for "$inc")"; topic="$(topic_for "$inc")"
     pid="$(cat "$d/listener.pid" 2>/dev/null || true)"
     if [ -n "$pid" ]; then pkill -P "$pid" 2>/dev/null || true; kill "$pid" 2>/dev/null || true; fi
+    # Belt-and-suspenders: kill the streaming curl directly. Under some shells the
+    # curl in `curl | while` is a grandchild of $$ that pkill -P / kill $$ miss
+    # (orphans reparent to init rather than dying). Its argv carries the unique
+    # topic, so match on that.
+    pkill -f "$topic" 2>/dev/null || true
     echo "status: closed"
 }
 
@@ -162,5 +180,6 @@ case "$cmd" in
     _mackey) [ "$#" -ge 1 ] || die "usage: _mackey <inc>"; need openssl; mac_key_for "$1" ;;
     _encrypt) [ "$#" -ge 2 ] || die "usage: _encrypt <inc> <plaintext>"; need openssl; encrypt_msg "$1" "$2" ;;
     _decrypt) [ "$#" -ge 2 ] || die "usage: _decrypt <inc> <wire>"; need openssl; decrypt_msg "$1" "$2" ;;
+    _msgtext) [ "$#" -ge 1 ] || die "usage: _msgtext <plaintext-json>"; printf '%s' "$1" | msg_text ;;
     *)   die "unknown command: ${cmd:-(none)}" ;;
 esac
