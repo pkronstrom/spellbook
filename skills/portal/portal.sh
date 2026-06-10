@@ -83,14 +83,15 @@ enc_key_for() { pbkdf2_hex "$(normalize_incantation "$1")" "$SALT_ENC"; }
 mac_key_for() { pbkdf2_hex "$(normalize_incantation "$1")" "$SALT_MAC"; }
 dir_for()       { printf '%s/portal.%s' "$STATE_ROOT" "$(topic_for "$1")"; }
 dir_for_topic() { printf '%s/portal.%s' "$STATE_ROOT" "$1"; }
-ACTIVE_FILE="$STATE_ROOT/portal.active"
+# Per-session, so two sessions on one host don't clobber each other's active channel.
+active_file() { printf '%s/portal.active.%s' "$STATE_ROOT" "$(session_id)"; }
 
 # The active channel lets send/read/wait/close run without re-typing the
 # incantation. resolve_topic prefers an explicit --channel handle (the topic,
 # which is NOT secret), else falls back to the last-opened (active) channel.
 resolve_topic() {
     if [ -n "${1:-}" ]; then printf '%s' "$1"; return 0; fi
-    t="$(cat "$ACTIVE_FILE" 2>/dev/null || true)"
+    t="$(cat "$(active_file)" 2>/dev/null || true)"
     [ -n "$t" ] || die "no active portal — open one first, or pass --channel <topic>"
     printf '%s' "$t"
 }
@@ -103,7 +104,7 @@ bind_channel() { # $1=incantation -> echoes the topic
     { printf 'enc %s\n' "$(enc_key_for "$inc")"
       printf 'mac %s\n' "$(mac_key_for "$inc")"
       printf 'topic %s\n' "$topic"; } > "$d/keys"
-    printf '%s' "$topic" > "$ACTIVE_FILE"
+    printf '%s' "$topic" > "$(active_file)"
     printf '%s' "$topic"
 }
 
@@ -192,7 +193,7 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
     load_keys "$d"   # ek, mk from the cached keys bind wrote — PBKDF2 paid once, not per message
     inbox="$d/inbox.log"; seen="$d/seen.ids"; ownsent="$d/sent.$(session_id).ids"
     : >> "$inbox"; : >> "$seen"; : >> "$ownsent"
-    printf '%s\n' "$$" >> "$d/listeners"   # register this streamer so close can kill ALL of them
+    printf '%s\n' "$$" >> "$d/listeners.$(session_id)"   # per-session, so close only stops OUR streamers
     { echo "status: open"; echo "topic: $topic"; echo "inbox: $inbox"; } >&2
     while :; do
         url="$NTFY_BASE/$topic/json"
@@ -249,26 +250,22 @@ do_wait() { # $1=channel(optional) — block until there is unread, print ALL un
     printf '%s' "$total" > "$off"
 }
 
-do_close() { # $1=channel(optional) — stop ALL streamers for the channel (deletes nothing)
+do_close() { # $1=channel(optional) — stop THIS session's streamers for the channel (deletes nothing)
     need openssl
-    topic="$(resolve_topic "${1:-}")"; d="$(dir_for_topic "$topic")"
-    # Every `open` appended its pid to listeners, so kill each registered streamer and
-    # its children — this catches stray/duplicate streamers a single listener.pid would
-    # miss (e.g. several opens, or two sessions sharing the channel on one host).
-    if [ -f "$d/listeners" ]; then
+    topic="$(resolve_topic "${1:-}")"; d="$(dir_for_topic "$topic")"; lf="$d/listeners.$(session_id)"
+    # Each `open` in THIS session appended its pid here, so kill every one (and its curl
+    # child) — catches stray/duplicate streamers a single listener.pid would miss. It is
+    # per-session, so closing does NOT tear down another session that shares the channel.
+    if [ -f "$lf" ]; then
         while IFS= read -r pid; do
             [ -n "$pid" ] || continue
-            pkill -P "$pid" 2>/dev/null || true
+            pkill -P "$pid" 2>/dev/null || true   # the streaming curl is a child of $pid
             kill "$pid" 2>/dev/null || true
-        done < "$d/listeners"
+        done < "$lf"
     fi
-    # Belt-and-suspenders: kill any orphaned streaming curl directly. Under some shells
-    # the curl in `curl | while` is a grandchild that pkill -P / kill miss (orphans
-    # reparent to init rather than dying). Its argv carries the unique topic, so match it.
-    pkill -f "$topic" 2>/dev/null || true
     # NOTE: intentionally leaves the channel dir (keys, inbox, listeners) in place —
-    # this script never deletes anything; the OS reaps $TMPDIR. Stale pids in listeners
-    # are harmless (kill of a dead pid is a no-op).
+    # this script never deletes anything; the OS reaps $TMPDIR. Stale pids are harmless
+    # (kill of a dead pid is a no-op).
     echo "status: closed"
 }
 

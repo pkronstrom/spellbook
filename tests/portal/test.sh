@@ -102,10 +102,10 @@ if [ "${PORTAL_TEST_NET:-0}" = "1" ]; then
     CLAUDE_CODE_SESSION_ID="$SID_ME" sh "$P" open "$LINC" >/dev/null 2>&1 &
     OPID=$!
     sleep 3
-    # a message from ANOTHER session (tricky text exercises the inbox extractor; --to esko the hint)
-    CLAUDE_CODE_SESSION_ID="$SID_OTHER" sh "$P" send 'reply {ok} say "hi"' --from tester --to esko >/dev/null
+    # a message from ANOTHER session (its active channel is its own now, so address by --channel)
+    CLAUDE_CODE_SESSION_ID="$SID_OTHER" sh "$P" send 'reply {ok} say "hi"' --from tester --to esko --channel "$LTOPIC" >/dev/null
     # our OWN send (same session as the streamer) must NOT echo into our inbox
-    CLAUDE_CODE_SESSION_ID="$SID_ME" sh "$P" send 'this is my own echo' --from me >/dev/null
+    CLAUDE_CODE_SESSION_ID="$SID_ME" sh "$P" send 'this is my own echo' --from me --channel "$LTOPIC" >/dev/null
     got=""
     i=0
     while [ "$i" -lt 12 ]; do
@@ -141,17 +141,17 @@ eq "read returns only the new line" "$(sh "$P" read --channel "$FTOPIC")" "$(pri
 eq "wait blocks then returns the appended line" "$(sh "$P" wait --channel "$FTOPIC")" "$(printf '1700000002\tesko\t\tthird')"
 sh "$P" close --channel "$FTOPIC" >/dev/null 2>&1; ok "close exits cleanly (idempotent)"
 
-# close kills ALL registered streamers, not just one (multi-streamer robustness)
+# close kills ALL of THIS session's registered streamers (per-session, multi-streamer robustness)
 FINC2="fake-multi-$(openssl rand -hex 4)"; FTOPIC2="$(sh "$P" _topic "$FINC2")"; FDIR2="$TMPDIR/portal.$FTOPIC2"
-mkdir -p "$FDIR2"
+CSID="close-test-$$"; mkdir -p "$FDIR2"
 sleep 30 & MP1=$!; sleep 30 & MP2=$!
-printf '%s\n%s\n' "$MP1" "$MP2" > "$FDIR2/listeners"
-sh "$P" close --channel "$FTOPIC2" >/dev/null 2>&1
+printf '%s\n%s\n' "$MP1" "$MP2" > "$FDIR2/listeners.$CSID"
+CLAUDE_CODE_SESSION_ID="$CSID" sh "$P" close --channel "$FTOPIC2" >/dev/null 2>&1
 sleep 1
 if kill -0 "$MP1" 2>/dev/null || kill -0 "$MP2" 2>/dev/null; then
-    no "close kills every registered streamer"; kill "$MP1" "$MP2" 2>/dev/null || true
+    no "close kills every registered streamer (this session)"; kill "$MP1" "$MP2" 2>/dev/null || true
 else
-    ok "close kills every registered streamer"
+    ok "close kills every registered streamer (this session)"
 fi
 
 # --- Task 6b: inbox text extraction survives quotes and braces (offline) ---
