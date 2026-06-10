@@ -1,7 +1,7 @@
 {
   "name": "spellbook",
-  "description": "A bundle of Claude skills. Includes Summon: securely teleport files, folders, whole skills, or context to a teammate's Claude via end-to-end-encrypted croc.",
-  "version": "0.1.0",
+  "description": "A bundle of Claude skills. Summon: securely teleport files, folders, whole skills, or context to a teammate's Claude via end-to-end-encrypted croc. Portal: open a live end-to-end-encrypted chat channel between agents over ntfy, unlocked by a spoken incantation.",
+  "version": "0.2.0",
   "author": {
     "name": "Peter Kronström"
   }

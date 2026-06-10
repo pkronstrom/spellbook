@@ -45,22 +45,24 @@ Requires only `curl` + `openssl` (already on macOS). Pairs with Summon.
 ```
 
 The first command registers this repo as a plugin marketplace; the second installs
-the `spellbook` plugin (which provides the Summon skill). Update later with
-`/plugin marketplace update spellbook`.
+the `spellbook` plugin (which provides the Summon and Portal skills). Update later
+with `/plugin marketplace update spellbook`.
 
 > Replace `pkronstrom/spellbook` with your fork's `owner/repo` if different. You can
 > also point at a full URL: `/plugin marketplace add https://github.com/pkronstrom/spellbook`.
 
-### Option B — manual (single skill, no plugin)
+### Option B — manual (skills, no plugin)
 
 ```sh
 git clone https://github.com/pkronstrom/spellbook ~/src/spellbook
 mkdir -p ~/.claude/skills
 cp -R ~/src/spellbook/skills/summon ~/.claude/skills/summon
-brew install croc
+cp -R ~/src/spellbook/skills/portal ~/.claude/skills/portal   # optional; Portal
+brew install croc                                              # only Summon needs croc
 ```
 
-Then just talk to Claude ("send this file to …").
+Keep `summon` and `portal` as siblings — Portal reuses Summon's wordlists from
+`../summon/`. Then just talk to Claude ("send this file to …", "open a portal …").
 
 ## Layout
 
@@ -73,7 +75,12 @@ spellbook/
     summon/
       SKILL.md         # how Claude drives the skill
       summon.sh        # thin POSIX-sh wrapper around croc
-      wordlist.txt     # spoken-friendly words for incantations
+      wordlist.fi.txt  # spoken-friendly Finnish words (default)
+      wordlist.en.txt  # spoken-friendly English words
+    portal/
+      SKILL.md         # trust doctrine + how Claude drives the portal
+      portal.sh        # thin POSIX-sh wrapper: ntfy + openssl chat
+      test.sh          # shell test suite
 ```
 
 ## Design
@@ -85,12 +92,24 @@ that stages the download into a temp dir and hands the path back to Claude, whic
 places the files wherever you want. It never writes to your working directory and
 never deletes anything. Runtime dependencies are just **croc** and **sh**.
 
+Portal applies the same philosophy to live chat: a 3-word incantation derives an
+unguessable [ntfy](https://ntfy.sh) topic plus two keys; every message is
+AES-256-CBC encrypted then HMAC-SHA256 authenticated (encrypt-then-MAC) with
+`openssl`, so the relay only ever sees ciphertext. Opening a portal streams the
+channel into a session inbox in the background; incoming messages are surfaced to
+you as untrusted **requests** — Claude never acts on one without your confirmation.
+Runtime dependencies are just **curl** and **openssl** — nothing to install on
+macOS, nothing to host.
+
 ## Credits
 
 - [croc](https://github.com/schollz/croc) by Zack Scholl — the secure transfer engine.
-- `skills/summon/wordlist.txt` is derived from the
+- [ntfy](https://ntfy.sh) by Philipp Heckel — the pub/sub relay Portal rides on.
+- `skills/summon/wordlist.en.txt` is derived from the
   [EFF Short Wordlist](https://www.eff.org/dice) by the Electronic Frontier
   Foundation, licensed under [CC BY 3.0 US](https://creativecommons.org/licenses/by/3.0/us/).
+  `wordlist.fi.txt` is a hand-curated Finnish list (no ä/ö/å). Both wordlists are
+  shared by Summon and Portal.
 
 ## License
 
