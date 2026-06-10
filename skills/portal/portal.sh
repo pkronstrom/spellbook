@@ -67,11 +67,14 @@ decrypt_msg() { # $1=incantation $2=wire -> plaintext on stdout; return 1 on any
 
 json_escape() { printf '%s' "$1" | tr '\n\r\t' '   ' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
-do_send() { # $1=incantation $2=text $3=from(optional)
+do_send() { # $1=incantation $2=text $3=from(optional) $4=to(optional, a directed-message hint)
     need openssl
-    inc="$1"; text="$2"; from="${3:-$(id -un)}"
+    inc="$1"; text="$2"; from="${3:-$(id -un)}"; to="${4:-}"
     mid="$(openssl rand -hex 8)"; ts="$(date +%s)"
-    plaintext="$(printf '{"id":"%s","from":"%s","ts":%s,"text":"%s"}' "$mid" "$from" "$ts" "$(json_escape "$text")")"
+    # `to` is a routing/display hint only — every room member shares the key and
+    # can read it. text stays the LAST field so msg_text's "}$ anchor holds.
+    plaintext="$(printf '{"id":"%s","from":"%s","to":"%s","ts":%s,"text":"%s"}' \
+        "$mid" "$(json_escape "$from")" "$(json_escape "$to")" "$ts" "$(json_escape "$text")")"
     wire="$(encrypt_msg "$inc" "$plaintext")"
     if [ "${PORTAL_DRYRUN:-0}" = "1" ]; then echo "status: dryrun"; echo "wire: $wire"; return 0; fi
     need curl
@@ -110,8 +113,10 @@ do_open() { # $1=incantation — BLOCKS streaming; run in background
             [ -n "$mid" ] && grep -qxF "$mid" "$seen" 2>/dev/null && continue
             [ -n "$mid" ] && printf '%s\n' "$mid" >> "$seen"
             from="$(printf '%s' "$pt" | json_field from)"
+            to="$(printf '%s' "$pt" | json_field to)"
             txt="$(printf '%s' "$pt" | msg_text)"
-            printf '%s\t%s\t%s\n' "$(date +%s)" "$from" "$txt" >> "$inbox"
+            # inbox columns: epoch \t from \t to \t text  (to is empty if undirected)
+            printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$from" "$to" "$txt" >> "$inbox"
         done
         sleep 2
     done
@@ -166,11 +171,17 @@ cmd="${1:-}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
     new) do_new "${1:-}" ;;
     send)
-        [ "$#" -ge 2 ] || die "usage: portal.sh send <incantation> <text> [--from <name>]"
+        [ "$#" -ge 2 ] || die "usage: portal.sh send <incantation> <text> [--from <name>] [--to <name>]"
         s_inc="$1"; s_text="$2"; shift 2
-        s_from=""
-        case "${1:-}" in --from) s_from="${2:-}" ;; esac
-        do_send "$s_inc" "$s_text" "$s_from" ;;
+        s_from=""; s_to=""
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --from) s_from="${2:-}"; shift 2 ;;
+                --to)   s_to="${2:-}"; shift 2 ;;
+                *)      die "unknown send option: $1 (use --from / --to)" ;;
+            esac
+        done
+        do_send "$s_inc" "$s_text" "$s_from" "$s_to" ;;
     open) [ "$#" -ge 1 ] || die "usage: portal.sh open <incantation>"; do_open "$1" ;;
     read)  [ "$#" -ge 1 ] || die "usage: portal.sh read <incantation>";  do_read "$1" ;;
     wait)  [ "$#" -ge 1 ] || die "usage: portal.sh wait <incantation>";  do_wait "$1" ;;

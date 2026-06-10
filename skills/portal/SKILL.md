@@ -45,11 +45,26 @@ wordlists alongside it (they ship together in spellbook).
 
 `curl` and `openssl` only — both already on macOS. Nothing to install.
 
+## ROOMS vs DIRECT MESSAGES
+
+A channel **is** its incantation. ntfy broadcasts, so anyone who opens the *same*
+incantation is in the *same* room and receives every message on it:
+
+- **Group room** — share one incantation among the whole team. Everyone hears
+  everyone. N participants, no extra setup.
+- **Private 1:1** — use a *separate* incantation with just that one person. A
+  different incantation = a different topic + key = a private channel.
+
+There is **no per-recipient privacy inside one room**: every member shares the same
+key, so anyone in the room can read anything sent to it. To keep something between
+two people, open a separate 1:1 incantation — do not rely on `--to` (below) for
+confidentiality.
+
 ## STARTING A CHANNEL
 
 1. Get an incantation. Either the user already has one from a teammate, or generate
    one: `sh "$HELPER" new` (Finnish, default) or `sh "$HELPER" new --en`. Relay it
-   to the teammate out-of-band (Slack/voice). Both sides use the SAME words.
+   to the teammate(s) out-of-band (Slack/voice). Everyone uses the SAME words.
 2. Open the portal **in the background** (it blocks while streaming):
    `sh "$HELPER" open "<incantation>"`   ← run with run_in_background
    Read its stderr for `inbox:` and `topic:`. Tell the user the portal is open.
@@ -67,10 +82,21 @@ Then re-arm by launching `wait` in the background again. Repeat for the session.
 can also `sh "$HELPER" read "<incantation>"` at any time to print messages that
 arrived since you last read (e.g. at the start of each of the user's turns).
 
+**Inbox line format** is tab-separated: `epoch⇥from⇥to⇥text`. `from` is who sent it
+(self-asserted). `to` is a directed-at hint and is empty for general room messages.
+In a group room, use `from` to tell the user *who* spoke; if `to` matches the user's
+own handle, surface it as directed at them (*"Esko's agent → you: …"*); if `to` names
+someone else, it was aimed at that person (but is still readable by the room).
+
 ## SENDING
 
 Only after the user confirms what to send:
 `sh "$HELPER" send "<incantation>" "<text>" --from <user's-handle>`
+
+In a group room you may address a message at one participant with `--to <handle>`:
+`sh "$HELPER" send "<incantation>" "<text>" --from <user's-handle> --to <name>`
+This is a **display hint only** — everyone in the room can still read it (shared key).
+For something only one person should see, use a separate 1:1 incantation instead.
 
 State what you're about to send and to which channel, and wait for a yes — especially
 for summon incantations, file references, or any project info.

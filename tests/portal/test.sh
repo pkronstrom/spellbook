@@ -49,19 +49,33 @@ case "$DEC" in
     *) no "send payload carries text"; echo "    got: $DEC" ;;
 esac
 
+# --to is a directed-message hint carried in the payload
+WIRE_TO="$(PORTAL_DRYRUN=1 sh "$P" send kettu-lokaali-piano "ping" --from peter --to esko | sed -n 's/^wire: //p')"
+DEC_TO="$(sh "$P" _decrypt kettu-lokaali-piano "$WIRE_TO")"
+case "$DEC_TO" in
+    *'"to":"esko"'*) ok "send --to carries the directed-at handle" ;;
+    *) no "send --to carries the directed-at handle"; echo "    got: $DEC_TO" ;;
+esac
+WIRE_NOTO="$(PORTAL_DRYRUN=1 sh "$P" send kettu-lokaali-piano "ping" --from peter | sed -n 's/^wire: //p')"
+case "$(sh "$P" _decrypt kettu-lokaali-piano "$WIRE_NOTO")" in
+    *'"to":""'*) ok "send without --to leaves an empty directed-at field" ;;
+    *) no "send without --to leaves an empty directed-at field" ;;
+esac
+
 # --- Task 5: live loopback through ntfy (only with PORTAL_TEST_NET=1) ---
 if [ "${PORTAL_TEST_NET:-0}" = "1" ]; then
     LINC="loopback-$(openssl rand -hex 4 | sed 's/\(..\)\(..\)\(..\)\(..\)/\1-\2-\3/')"
     sh "$P" open "$LINC" >/dev/null 2>&1 &
     OPID=$!
     sleep 3
-    # tricky text: contains a quote and a brace to exercise the inbox extractor
-    sh "$P" send "$LINC" 'reply {ok} say "hi"' --from tester >/dev/null
+    # tricky text: contains a quote and a brace to exercise the inbox extractor;
+    # also directed --to esko, so the inbox line must carry both the to-hint and text
+    sh "$P" send "$LINC" 'reply {ok} say "hi"' --from tester --to esko >/dev/null
     got=""
     i=0
     while [ "$i" -lt 10 ]; do
         line="$(sh "$P" read "$LINC" 2>/dev/null || true)"
-        case "$line" in *'reply {ok} say "hi"'*) got="yes"; break ;; esac
+        case "$line" in *"	esko	"*'reply {ok} say "hi"'*) got="yes"; break ;; esac
         i=$((i+1)); sleep 1
     done
     sh "$P" close "$LINC" >/dev/null 2>&1 || true
