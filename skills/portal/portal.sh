@@ -39,6 +39,27 @@ gen_incantation() {
     printf '%s-%s-%s' "$(pick_word "$n" "$wl")" "$(pick_word "$n" "$wl")" "$(pick_word "$n" "$wl")"
 }
 
+b64()   { openssl base64 -A; }
+unb64() { openssl base64 -d -A; }
+hmac_hex() { openssl dgst -sha256 -hmac "$1" | awk '{print $NF}'; }
+
+encrypt_msg() { # $1=incantation $2=plaintext -> v1.<iv_hex>.<ct_b64>.<mac_hex>
+    ek="$(enc_key_for "$1")"; mk="$(mac_key_for "$1")"
+    iv="$(openssl rand -hex 16)"
+    ct="$(printf '%s' "$2" | openssl enc -aes-256-cbc -K "$ek" -iv "$iv" | b64)"
+    mac="$(printf '%s%s' "$iv" "$ct" | hmac_hex "$mk")"
+    printf 'v1.%s.%s.%s' "$iv" "$ct" "$mac"
+}
+
+decrypt_msg() { # $1=incantation $2=wire -> plaintext on stdout; return 1 on any failure
+    case "$2" in v1.*.*.*) ;; *) return 1 ;; esac
+    ek="$(enc_key_for "$1")"; mk="$(mac_key_for "$1")"
+    rest="${2#v1.}"; iv="${rest%%.*}"; rest="${rest#*.}"; ct="${rest%%.*}"; mac="${rest#*.}"
+    want="$(printf '%s%s' "$iv" "$ct" | hmac_hex "$mk")"
+    [ "$want" = "$mac" ] || return 1
+    printf '%s' "$ct" | unb64 | openssl enc -d -aes-256-cbc -K "$ek" -iv "$iv" 2>/dev/null
+}
+
 do_new() {
     lang=fi
     case "${1:-}" in --en) lang=en ;; --fi|"") lang=fi ;; *) die "usage: portal.sh new [--fi|--en]" ;; esac
@@ -54,5 +75,7 @@ case "$cmd" in
     _topic)  [ "$#" -ge 1 ] || die "usage: _topic <inc>";  need openssl; topic_for "$1" ;;
     _enckey) [ "$#" -ge 1 ] || die "usage: _enckey <inc>"; need openssl; enc_key_for "$1" ;;
     _mackey) [ "$#" -ge 1 ] || die "usage: _mackey <inc>"; need openssl; mac_key_for "$1" ;;
+    _encrypt) [ "$#" -ge 2 ] || die "usage: _encrypt <inc> <plaintext>"; need openssl; encrypt_msg "$1" "$2" ;;
+    _decrypt) [ "$#" -ge 2 ] || die "usage: _decrypt <inc> <wire>"; need openssl; decrypt_msg "$1" "$2" ;;
     *)   die "unknown command: ${cmd:-(none)}" ;;
 esac

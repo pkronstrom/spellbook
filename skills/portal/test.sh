@@ -23,6 +23,18 @@ eq "topic derivation"   "$(sh "$P" _topic  kettu-lokaali-piano)" "portal-3726580
 eq "enc key derivation" "$(sh "$P" _enckey kettu-lokaali-piano)" "3f8c9b86950f696d9dc457b4167dd8bbfd528a06c9e3a6d1145427372da9972a"
 eq "mac key derivation" "$(sh "$P" _mackey kettu-lokaali-piano)" "6ddac5c69f2a7f36984f770e8b25f6b3580fd42e2f623f8b6fed466867178c6f"
 
+# --- Task 3: crypto round-trip + rejection ---
+PLAIN='{"id":"abc","from":"peter","ts":1,"text":"hei Esko"}'
+WIRE="$(sh "$P" _encrypt kettu-lokaali-piano "$PLAIN")"
+eq "decrypt with right incantation" "$(sh "$P" _decrypt kettu-lokaali-piano "$WIRE")" "$PLAIN"
+
+if sh "$P" _decrypt vaara-sana-tassa "$WIRE" >/dev/null 2>&1; then no "wrong incantation rejected"; else ok "wrong incantation rejected"; fi
+
+TAMP="$(printf '%s' "$WIRE" | sed 's/.$/X/')"
+if sh "$P" _decrypt kettu-lokaali-piano "$TAMP" >/dev/null 2>&1; then no "tampered ciphertext rejected"; else ok "tampered ciphertext rejected"; fi
+
+eq "wire format is v1 with 4 dot fields" "$(printf '%s' "$WIRE" | awk -F. '{print $1, NF}')" "v1 4"
+
 echo "---"
 echo "PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ]
