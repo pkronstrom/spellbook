@@ -60,6 +60,23 @@ decrypt_msg() { # $1=incantation $2=wire -> plaintext on stdout; return 1 on any
     printf '%s' "$ct" | unb64 | openssl enc -d -aes-256-cbc -K "$ek" -iv "$iv" 2>/dev/null
 }
 
+json_escape() { printf '%s' "$1" | tr '\n\r\t' '   ' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+do_send() { # $1=incantation $2=text $3=from(optional)
+    need openssl
+    inc="$1"; text="$2"; from="${3:-$(id -un)}"
+    mid="$(openssl rand -hex 8)"; ts="$(date +%s)"
+    plaintext="$(printf '{"id":"%s","from":"%s","ts":%s,"text":"%s"}' "$mid" "$from" "$ts" "$(json_escape "$text")")"
+    wire="$(encrypt_msg "$inc" "$plaintext")"
+    if [ "${PORTAL_DRYRUN:-0}" = "1" ]; then echo "status: dryrun"; echo "wire: $wire"; return 0; fi
+    need curl
+    topic="$(topic_for "$inc")"
+    code="$(printf '%s' "$wire" | curl -s --data-binary @- "$NTFY_BASE/$topic" -o /dev/null -w '%{http_code}')"
+    [ "$code" = "200" ] || die "publish failed (http $code)"
+    echo "status: sent"
+    echo "to_topic: $topic"
+}
+
 do_new() {
     lang=fi
     case "${1:-}" in --en) lang=en ;; --fi|"") lang=fi ;; *) die "usage: portal.sh new [--fi|--en]" ;; esac
@@ -72,6 +89,12 @@ do_new() {
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift || true
 case "$cmd" in
     new) do_new "${1:-}" ;;
+    send)
+        [ "$#" -ge 2 ] || die "usage: portal.sh send <incantation> <text> [--from <name>]"
+        s_inc="$1"; s_text="$2"; shift 2
+        s_from=""
+        case "${1:-}" in --from) s_from="${2:-}" ;; esac
+        do_send "$s_inc" "$s_text" "$s_from" ;;
     _topic)  [ "$#" -ge 1 ] || die "usage: _topic <inc>";  need openssl; topic_for "$1" ;;
     _enckey) [ "$#" -ge 1 ] || die "usage: _enckey <inc>"; need openssl; enc_key_for "$1" ;;
     _mackey) [ "$#" -ge 1 ] || die "usage: _mackey <inc>"; need openssl; mac_key_for "$1" ;;
