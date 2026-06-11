@@ -111,6 +111,36 @@ you as untrusted **requests** — Claude never acts on one without your confirma
 Runtime dependencies are just **curl** and **openssl** — nothing to install on
 macOS, nothing to host.
 
+## Security & privacy
+
+By default the non-local skills ride **public infrastructure** you don't control:
+Summon relays through croc's **built-in public rendezvous server** (the default
+relay shipped with croc, run by the croc project), and Portal publishes to the
+**public ntfy server** (`ntfy.sh`). Contents are end-to-end
+encrypted — croc via PAKE, Portal via PBKDF2 + AES-256 + HMAC — so these relays only
+ever see ciphertext. But encryption of the payload is **not** the whole threat model:
+
+- **Metadata leaks regardless.** A public relay still sees that *someone* is
+  transferring/chatting, when, how often, how big the messages are, the IP addresses
+  of both ends, and the (random but observable) topic/code. Traffic analysis is
+  possible even when the bytes are unreadable.
+- **You're trusting a third party's availability and good behavior.** A public server
+  can log connections, go down mid-transfer, rate-limit you, or be compromised.
+- **The spoken 3-word incantation is low-entropy.** PBKDF2 (Portal) and PAKE (croc)
+  raise the cost of attacking it, but a public relay is exactly where an attacker
+  would sit to try. Don't reuse incantations or pick guessable words. For a secret
+  that rides *inside* an already-encrypted portal, prefer Summon's `--strong` mode
+  (a high-entropy code no human reads).
+
+**Bottom line: don't send anything critical over the public servers** — credentials,
+secrets, tokens, sensitive personal/customer data, or wording you wouldn't want a
+third party to know *exists*. Treat the default channel as convenient, not
+confidential. For sensitive use, **self-host both relays**: run your own croc relay
+(`croc --relay …` / `CROC_RELAY`) and point `PORTAL_NTFY_BASE` at your own ntfy
+server, so no third party is in the loop at all. **Local mode (the Portling) never
+touches any server** — but it's also plaintext on a same-machine bus, so its trust
+boundary is the machine itself.
+
 ## Credits
 
 - [croc](https://github.com/schollz/croc) by Zack Scholl — the secure transfer engine.
