@@ -12,6 +12,11 @@
 # over voice) and English; `receive` normalizes whatever words it is handed, so
 # the language flag only matters when sending.
 #
+# `send --strong` swaps the spoken 3-word code for a high-entropy hex secret. Use
+# it ONLY when the secret travels inside an already-encrypted channel (e.g. relayed
+# through a portal) and no human ever reads it aloud — there words buy memorability
+# you don't need, and entropy is what matters.
+#
 # `send` serves until the peer connects, then exits. Run it in the background
 # (the agent's background shell); it ends when that shell / the session ends.
 #
@@ -21,9 +26,9 @@
 # anything; temp dirs under $TMPDIR are reaped by the OS.
 #
 # Subcommands (an optional --fi/--en/--lang flag may precede send args):
-#   send [--en] <path>     serve a file/folder (blocks until received)
-#   send-text [--en] <text> serve a chunk of text/context
-#   receive <incantation>  download into a temp dir; print the path + contents
+#   send [--en] [--strong] <path>      serve a file/folder (blocks until received)
+#   send-text [--en] [--strong] <text> serve a chunk of text/context
+#   receive <incantation>              download into a temp dir; print path + contents
 #
 # Output is simple `key: value` lines. `send` writes them to stderr (unbuffered,
 # so they show immediately while it keeps serving); `receive` writes to stdout.
@@ -53,26 +58,44 @@ gen_incantation() {
     printf '%s-%s-%s' "$(pick_word "$n")" "$(pick_word "$n")" "$(pick_word "$n")"
 }
 
+# A 128-bit hex secret for --strong, drawn the same way (od + /dev/urandom) as the
+# wordlist picks — no new dependency. Hex on purpose: `normalize_incantation`
+# lowercases the received code, and hex survives that round-trip unchanged where
+# mixed-case base64 would be corrupted.
+gen_strong() { od -An -N16 -tx1 /dev/urandom | tr -d ' \n'; }
+
 # --- send (blocks while serving; run it in the background) ------------------
 do_send() {
     need_croc
     src="$1"
     [ -e "$src" ] || die "no such path: $src"
     name="$(basename "$src")"
-    code="$(gen_incantation)"
-    share="Summon this: $code  ($name) — receive with: croc $code"
-    clip="no"
-    command -v pbcopy >/dev/null 2>&1 && printf '%s' "$share" | pbcopy && clip="yes"
-    # On stderr: this process blocks on croc and never returns to flush a
-    # block-buffered stdout pipe, but stderr is unbuffered — so the agent's
+    # On stderr in both modes: this process blocks on croc and never returns to
+    # flush a block-buffered stdout pipe, but stderr is unbuffered — so the agent's
     # background reader sees the incantation immediately while croc serves.
-    {
-        echo "status: serving"
-        echo "incantation: $code"
-        echo "name: $name"
-        echo "clipboard: $clip"
-        echo "share_line: $share"
-    } >&2
+    if [ "${STRONG:-no}" = yes ]; then
+        # Strong mode: a high-entropy secret meant to ride inside an already-
+        # encrypted channel. No clipboard / share line — a human never handles it.
+        code="$(gen_strong)"
+        {
+            echo "status: serving"
+            echo "incantation: $code"
+            echo "name: $name"
+            echo "mode: strong — relay this secret through the encrypted channel, never aloud"
+        } >&2
+    else
+        code="$(gen_incantation)"
+        share="Summon this: $code  ($name) — receive with: croc $code"
+        clip="no"
+        command -v pbcopy >/dev/null 2>&1 && printf '%s' "$share" | pbcopy && clip="yes"
+        {
+            echo "status: serving"
+            echo "incantation: $code"
+            echo "name: $name"
+            echo "clipboard: $clip"
+            echo "share_line: $share"
+        } >&2
+    fi
     CROC_SECRET="$code" croc --yes send "$src" >&2
 }
 
@@ -104,15 +127,24 @@ do_receive() {
 # --- dispatch --------------------------------------------------------------
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift || true
 
-# Optional language flag picks the wordlist for the incantation (send only;
-# receive normalizes whatever words it is handed). Finnish is the default.
+# Optional leading flags for send/send-text: --fi/--en/--lang pick the incantation
+# wordlist; --strong swaps the spoken 3-word code for a high-entropy secret. They
+# may come in any order before the positional arg. receive needs no flags (it
+# normalizes whatever code it is handed). Finnish is the default wordlist.
 lang=fi
-case "${1:-}" in
-    --lang)   shift; lang="${1:-fi}"; [ "$#" -gt 0 ] && shift || true ;;
-    --lang=*) lang="${1#--lang=}"; shift ;;
-    --fi)     lang=fi; shift ;;
-    --en)     lang=en; shift ;;
-esac
+STRONG=no
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --lang)   shift; lang="${1:-fi}" ;;
+        --lang=*) lang="${1#--lang=}" ;;
+        --fi)     lang=fi ;;
+        --en)     lang=en ;;
+        --strong) STRONG=yes ;;
+        --)       shift; break ;;
+        *)        break ;;
+    esac
+    shift
+done
 case "$lang" in
     fi) WORDLIST="$SCRIPT_DIR/wordlist.fi.txt" ;;
     en) WORDLIST="$SCRIPT_DIR/wordlist.en.txt" ;;

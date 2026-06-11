@@ -54,6 +54,10 @@ macOS network-permission prompt — the user must allow it.
    over voice chat). For an English incantation, add `--en` right after the
    subcommand: `sh "$HELPER" send --en "<path>"`. Pick the language to match
    whoever will be summoning it.
+   If the secret will travel inside an **already-encrypted channel** (e.g. relayed
+   through a portal — see the portal skill) rather than spoken aloud, add `--strong`
+   for a high-entropy hex secret instead of 3 words: `sh "$HELPER" send --strong
+   "<path>"`. No human reads it, so entropy beats memorability.
 2. Read the background output for the `incantation` and `share_line` (the share
    line is also copied to the clipboard). Relay it in-theme, e.g.:
    > ✨ Bound and ready. Incantation: `brim-gloss-kite`
