@@ -74,7 +74,11 @@ SALT_TOPIC=706f7274616c5f74   # "portal_t"
 SALT_ENC=706f7274616c5f65     # "portal_e"
 SALT_MAC=706f7274616c5f6d     # "portal_m"
 pbkdf2_hex() { # $1=normalized incantation  $2=salt(hex) -> 64 lowercase hex chars
-    k="$(openssl enc -aes-256-cbc -pbkdf2 -iter "$PORTAL_ITER" -md sha256 -pass pass:"$1" -S "$2" -P 2>/dev/null | sed -n 's/^key=//p' | tr 'A-F' 'a-f')"
+    # Feed the incantation via stdin, NOT `-pass pass:$1`: command-line args are visible
+    # to any same-user process (ps / /proc/<pid>/cmdline), and this is the root secret.
+    # `-pass stdin` reads one line and strips its trailing newline, deriving the byte-
+    # identical key (verified), so the wire format and golden test values are unchanged.
+    k="$(printf '%s' "$1" | openssl enc -aes-256-cbc -pbkdf2 -iter "$PORTAL_ITER" -md sha256 -pass stdin -S "$2" -P 2>/dev/null | sed -n 's/^key=//p' | tr 'A-F' 'a-f')"
     [ -n "$k" ] || die "openssl PBKDF2 unavailable (need OpenSSL 1.1+/LibreSSL with 'enc -pbkdf2 -P')"
     printf '%s' "$k"
 }
@@ -211,9 +215,13 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
             [ -n "$mid" ] && grep -qxF "$mid" "$ownsent" 2>/dev/null && continue
             [ -n "$mid" ] && grep -qxF "$mid" "$seen" 2>/dev/null && continue
             [ -n "$mid" ] && printf '%s\n' "$mid" >> "$seen"
-            from="$(printf '%s' "$pt" | json_field from)"
-            to="$(printf '%s' "$pt" | json_field to)"
-            txt="$(printf '%s' "$pt" | msg_text)"
+            # Strip tabs/newlines from the (attacker-controllable) decrypted fields: an
+            # authorized peer could otherwise embed a literal tab to shift the inbox's
+            # tab-separated columns, or a newline to inject a whole fake inbox line. Mirrors
+            # the send-side json_escape, which already neutralizes these for honest senders.
+            from="$(printf '%s' "$pt" | json_field from | tr '\t\n\r' '   ')"
+            to="$(printf '%s' "$pt" | json_field to | tr '\t\n\r' '   ')"
+            txt="$(printf '%s' "$pt" | msg_text | tr '\t\n\r' '   ')"
             # inbox columns: epoch \t from \t to \t text  (to is empty if undirected)
             printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$from" "$to" "$txt" >> "$inbox"
         done
