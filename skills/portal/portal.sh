@@ -41,6 +41,12 @@ STATE_ROOT="${TMPDIR:-/tmp}"
 # looks successful but never arrives. Reject oversized messages loudly instead. Raise
 # only if you self-host ntfy with a larger message-size-limit.
 PORTAL_MAX_WIRE="${PORTAL_MAX_WIRE:-3900}"
+# A background streamer (do_open) must never outlive its launcher — an un-closed one
+# used to reparent to init and respawn curl forever (found 18-day-old orphans). Two
+# tunables back the self-cleanup in do_open: how often curl returns so the loop can
+# re-check its liveness guards, and a hard cap after which a streamer stops regardless.
+PORTAL_POLL_MAX="${PORTAL_POLL_MAX:-300}"            # seconds: curl --max-time per connection
+PORTAL_MAX_LIFETIME="${PORTAL_MAX_LIFETIME:-43200}"  # seconds: 12h hard cap on one streamer
 
 # --- local mode: one shared plaintext bus for agents on THIS machine ------------
 # Same user, same host -> same trust domain, so no relay, no encryption, no streamer.
@@ -199,11 +205,21 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
     : >> "$inbox"; : >> "$seen"; : >> "$ownsent"
     printf '%s\n' "$$" >> "$d/listeners.$(session_id)"   # per-session, so close only stops OUR streamers
     { echo "status: open"; echo "topic: $topic"; echo "inbox: $inbox"; } >&2
+    # Never outlive our launcher. Three backstops: (1) a signal trap kills our curl child
+    # on close/term; (2) if we get reparented to init the session died without calling
+    # close, so stop; (3) a hard max-lifetime cap. curl's --max-time bounds each connection
+    # so the loop re-checks (2) and (3) every PORTAL_POLL_MAX seconds (it reconnects with
+    # ?since=<last.id>, so no messages are missed) instead of blocking on the stream forever.
+    trap 'pkill -P $$ 2>/dev/null; exit 0' TERM INT HUP
+    start_ppid="$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')"
+    deadline=$(( $(date +%s) + PORTAL_MAX_LIFETIME ))
     while :; do
+        [ "$start_ppid" != 1 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" = 1 ] && break
+        [ "$(date +%s)" -ge "$deadline" ] && break
         url="$NTFY_BASE/$topic/json"
         last="$(cat "$d/last.id" 2>/dev/null || true)"
         [ -n "$last" ] && url="$url?since=$last"
-        curl -sN "$url" 2>/dev/null | while IFS= read -r line; do
+        curl -sN --max-time "$PORTAL_POLL_MAX" "$url" 2>/dev/null | while IFS= read -r line; do
             case "$line" in *'"event":"message"'*) ;; *) continue ;; esac
             nid="$(printf '%s' "$line" | json_field id)"
             [ -n "$nid" ] && printf '%s' "$nid" > "$d/last.id"
@@ -227,6 +243,7 @@ do_open() { # $1=incantation — bind the channel, then BLOCK streaming; run in 
         done
         sleep 2
     done
+    pkill -P $$ 2>/dev/null || true   # we broke out (orphaned or max lifetime): sweep any curl child
 }
 
 do_read() { # $1=channel(optional) — print inbox lines new since last read

@@ -42,6 +42,9 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 die() { echo "status: error"; echo "error: $*"; exit 1; }
 need_croc() { command -v croc >/dev/null 2>&1 || die "croc not found. Install with: brew install croc"; }
 mktempdir() { mktemp -d "${TMPDIR:-/tmp}/summon.XXXXXX"; }
+# How long a `send` keeps serving before giving up. A served-but-never-received croc that
+# outlives its launcher busy-loops on relay reconnect at ~100% CPU forever, so cap it.
+SUMMON_SEND_TIMEOUT="${SUMMON_SEND_TIMEOUT:-3600}"
 
 pick_word() { r="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"; sed -n "$(( (r % $1) + 1 ))p" "$WORDLIST"; }
 
@@ -96,7 +99,22 @@ do_send() {
             echo "share_line: $share"
         } >&2
     fi
-    CROC_SECRET="$code" croc --yes send "$src" >&2
+    # Serve in the background and supervise it, so croc never outlives its launcher.
+    # An orphaned `croc send` (receiver never came, parent died) busy-loops on relay
+    # reconnect at ~100% CPU forever — guard three ways: a signal trap, an orphaned-to-
+    # init check (the launcher/session died), and a hard SUMMON_SEND_TIMEOUT cap.
+    CROC_SECRET="$code" croc --yes send "$src" >&2 &
+    croc_pid=$!
+    trap 'kill "$croc_pid" 2>/dev/null; exit 0' TERM INT HUP
+    start_ppid="$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')"
+    deadline=$(( $(date +%s) + SUMMON_SEND_TIMEOUT ))
+    while kill -0 "$croc_pid" 2>/dev/null; do
+        [ "$start_ppid" != 1 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" = 1 ] && { kill "$croc_pid" 2>/dev/null || true; break; }
+        [ "$(date +%s)" -ge "$deadline" ] && { kill "$croc_pid" 2>/dev/null || true; { echo "status: timeout"; echo "note: no peer connected within ${SUMMON_SEND_TIMEOUT}s — stopped serving"; } >&2; break; }
+        sleep 2
+    done
+    trap - TERM INT HUP
+    wait "$croc_pid" 2>/dev/null || true
 }
 
 do_send_text() {
